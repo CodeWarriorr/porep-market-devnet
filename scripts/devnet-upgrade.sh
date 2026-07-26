@@ -170,8 +170,14 @@ authorized_for_upgrade() {
   fi
 }
 
-while IFS=$'\t' read -r contract_name kind calldata; do
+while IFS=$'\t' read -r contract_name kind calldata <&3; do
   expected="$(jq -r --arg name "${contract_name}" '.contracts[$name].implementation' "${current_manifest}")"
+  current_hash="$(jq -r --arg name "${contract_name}" \
+    '.contracts[$name].implementationCodeHash' "${current_manifest}")"
+  target_hash="$(expected_runtime_hash "${contract_name}")"
+  [[ "$(printf '%s' "${target_hash}" | tr '[:upper:]' '[:lower:]')" != \
+    "$(printf '%s' "${current_hash}" | tr '[:upper:]' '[:lower:]')" ]] ||
+    devnet_die "requested target has unchanged implementation code: ${contract_name}"
   actual="$(live_implementation "${contract_name}")"
   if [[ "$(printf '%s' "${expected}" | tr '[:upper:]' '[:lower:]')" == \
     "$(printf '%s' "${actual}" | tr '[:upper:]' '[:lower:]')" ]]; then
@@ -189,7 +195,7 @@ while IFS=$'\t' read -r contract_name kind calldata; do
     devnet_die "compiled target artifact is missing: ${artifact}"
   [[ "${calldata}" =~ ^0x([0-9a-fA-F]{2})*$ ]] ||
     devnet_die "upgrade calldata must be explicit hex: ${contract_name}"
-done < <(jq -r '.steps[] | [.contract,.kind,.calldata] | @tsv' <<<"${plan}")
+done 3< <(jq -r '.steps[] | [.contract,.kind,.calldata] | @tsv' <<<"${plan}")
 
 receipts_dir="${deployment_dir}/upgrade-receipts/${next_name%.json}"
 mkdir -p "${receipts_dir}"
@@ -200,7 +206,7 @@ fi
 trap 'printf "upgrade stopped; resume the same target with: just upgrade %q source=%q contracts=%q\n" "${deployment_id}" "${source_arg}" "${contracts_csv}" >&2' ERR
 
 step_index=0
-while IFS=$'\t' read -r contract_name kind calldata; do
+while IFS=$'\t' read -r contract_name kind calldata <&3; do
   step_index="$((step_index + 1))"
   printf -v step_name '%02d-%s.json' "${step_index}" "${contract_name}"
   receipt_path="${receipts_dir}/${step_name}"
@@ -312,7 +318,7 @@ while IFS=$'\t' read -r contract_name kind calldata; do
      else . + [{purpose:("upgrade:" + $receipt[0].contract),hash:$receipt[0].hash,blockNumber:$receipt[0].blockNumber}]
      end' "${transactions_json}" >"${transactions_json}.temporary"
   mv "${transactions_json}.temporary" "${transactions_json}"
-done < <(jq -r '.steps[] | [.contract,.kind,.calldata] | @tsv' <<<"${plan}")
+done 3< <(jq -r '.steps[] | [.contract,.kind,.calldata] | @tsv' <<<"${plan}")
 
 epoch="$(cast_curio block-number | awk '{print $1}')"
 jq \

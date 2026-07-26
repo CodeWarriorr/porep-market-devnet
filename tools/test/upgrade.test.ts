@@ -76,6 +76,9 @@ test("upgrade execution is locked, resumable, and verifies the requested transac
   assert.match(script, /upgrade finalized after interrupted publication/);
   assert.match(script, /live implementation does not match the requested target/);
   assert.match(script, /live implementation code does not match the compiled target/);
+  assert.match(script, /requested target has unchanged implementation code/);
+  assert.equal(script.match(/read -r contract_name kind calldata <&3/g)?.length, 2);
+  assert.equal(script.match(/done 3< <\(jq -r/g)?.length, 2);
   assert.match(script, /\.transactionType == "CALL"/);
   assert.match(script, /\.transaction\.to/);
   assert.match(script, /\.status.*0x1/);
