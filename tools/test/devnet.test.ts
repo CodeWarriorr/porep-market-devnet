@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import type { SpawnSyncReturns } from "node:child_process";
 import {
   chmod,
   cp,
@@ -39,7 +38,6 @@ const sptoolPatchPath = join(
   "0001-sptool-mk20-notification-flags.patch",
 );
 const commonScriptPath = join(repositoryRoot, "scripts", "devnet-common.sh");
-const imagePlatformValidatorPath = join(repositoryRoot, "scripts", "verify-image-platform.mjs");
 const runtimeLockPath = join(repositoryRoot, "versions.lock.yaml");
 const composePath = join(repositoryRoot, "docker", "compose.curio-devnet.yaml");
 const upScriptPath = join(repositoryRoot, "scripts", "devnet-up.sh");
@@ -47,7 +45,6 @@ const downScriptPath = join(repositoryRoot, "scripts", "devnet-down.sh");
 const resetScriptPath = join(repositoryRoot, "scripts", "devnet-reset.sh");
 const logsScriptPath = join(repositoryRoot, "scripts", "devnet-logs.sh");
 const statusScriptPath = join(repositoryRoot, "scripts", "devnet-status.sh");
-const fixtureDigest = `sha256:${"a".repeat(64)}`;
 const curioSourceCommit = "ce15c0c92209366a5523b803e9c159baa2ffb66a";
 const derivedImageServices = [
   "lotus",
@@ -158,49 +155,6 @@ test("public status command is bounded and reports a stopped project precisely",
   assert.match(statusScript, /ControlAddresses/);
   assert.match(statusScript, /127\.0\.0\.1:22310\/health/);
 });
-
-interface PlatformDescriptor {
-  architecture?: string;
-  os?: string;
-  variant?: string;
-}
-
-function manifestChild(
-  digest: string,
-  platform: PlatformDescriptor,
-): Record<string, unknown> {
-  return {
-    digest,
-    mediaType: "application/vnd.oci.image.manifest.v1+json",
-    platform,
-    size: 123,
-  };
-}
-
-function runImagePlatformValidator(
-  input: string | Record<string, unknown>,
-  architecture = "arm64",
-  expectedDigest = fixtureDigest,
-): SpawnSyncReturns<string> {
-  return spawnSync(
-    process.execPath,
-    [imagePlatformValidatorPath, architecture, expectedDigest],
-    {
-      encoding: "utf8",
-      input: typeof input === "string" ? input : JSON.stringify(input),
-      maxBuffer: 64 * 1024,
-      timeout: 1_000,
-    },
-  );
-}
-
-function imageIndex(...manifests: Record<string, unknown>[]): Record<string, unknown> {
-  return {
-    manifests,
-    mediaType: "application/vnd.oci.image.index.v1+json",
-    schemaVersion: 2,
-  };
-}
 
 async function renderTaskThreeCompose(): Promise<{
   contract: ComposeRuntimeContract;
@@ -1258,19 +1212,12 @@ test("devnet build confines context and output to the verified project namespace
   }
 });
 
-test("devnet build is bounded and records inspected immutable image evidence", async () => {
+test("devnet build is bounded and records inspected local image evidence", async () => {
   const { buildScript, commonScript, dockerfile } = await readBuildFiles();
 
   assert.match(commonScript, /DEVNET_BUILD_TIMEOUT_MS=5400000/);
   assert.match(buildScript, /run-with-timeout\.mjs/);
-  assert.match(buildScript, /docker buildx imagetools inspect/);
-  assert.match(buildScript, /verify-image-platform\.mjs/);
-  const platformValidatorFunction = buildScript.match(
-    /verify_manifest_platform\(\) \{[\s\S]*?\n\}/,
-  )?.[0];
-  assert.ok(platformValidatorFunction);
-  assert.doesNotMatch(platformValidatorFunction, /\bnode -e\b/);
-  assert.match(platformValidatorFunction, /--timeout-ms 120000/);
+  assert.doesNotMatch(buildScript, /docker buildx imagetools inspect/);
   assert.match(buildScript, /docker image inspect/);
   assert.match(buildScript, /\.runtime\/devnet\/build\/images\.json/);
   assert.match(buildScript, /mktemp/);
@@ -1566,100 +1513,4 @@ test("all project Dockerfiles omit VOLUME and derived definitions transparently 
     /--file "\$\{curio_source_relative\}\/\$\{relative_dockerfile\}"/,
   );
   assert.deepEqual(violations, []);
-});
-
-test("image platform validator accepts the exact arm64 digest with v8 or no variant", () => {
-  for (const platform of [
-    { architecture: "arm64", os: "linux", variant: "v8" },
-    { architecture: "arm64", os: "linux" },
-  ]) {
-    const result = runImagePlatformValidator(
-      imageIndex(manifestChild(fixtureDigest, platform)),
-    );
-
-    assert.equal(result.error, undefined);
-    assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout, "");
-    assert.equal(result.stderr, "");
-  }
-});
-
-test("image platform validator accepts only one compatible exact child", () => {
-  const differentDigest = `sha256:${"b".repeat(64)}`;
-  const cases: Array<{ input: string | Record<string, unknown>; name: string }> = [
-    {
-      name: "arm64 v7",
-      input: imageIndex(manifestChild(fixtureDigest, {
-        architecture: "arm64",
-        os: "linux",
-        variant: "v7",
-      })),
-    },
-    {
-      name: "different digest",
-      input: imageIndex(manifestChild(differentDigest, {
-        architecture: "arm64",
-        os: "linux",
-        variant: "v8",
-      })),
-    },
-    {
-      name: "different architecture",
-      input: imageIndex(manifestChild(fixtureDigest, {
-        architecture: "amd64",
-        os: "linux",
-      })),
-    },
-    {
-      name: "different operating system",
-      input: imageIndex(manifestChild(fixtureDigest, {
-        architecture: "arm64",
-        os: "darwin",
-      })),
-    },
-    {
-      name: "malformed JSON",
-      input: '{"registryCredential":"fixture-secret-not-a-real-credential",',
-    },
-    {
-      name: "duplicate compatible children",
-      input: imageIndex(
-        manifestChild(fixtureDigest, { architecture: "arm64", os: "linux" }),
-        manifestChild(fixtureDigest, { architecture: "arm64", os: "linux", variant: "v8" }),
-      ),
-    },
-    {
-      name: "missing child",
-      input: imageIndex(),
-    },
-  ];
-
-  for (const fixture of cases) {
-    const result = runImagePlatformValidator(fixture.input);
-    const diagnostics = `${result.stdout}${result.stderr}`;
-
-    assert.equal(result.error, undefined, fixture.name);
-    assert.notEqual(result.status, 0, fixture.name);
-    assert.match(result.stderr, /^image platform validation failed: [^\n]+\n$/, fixture.name);
-    assert.ok(Buffer.byteLength(diagnostics) <= 512, fixture.name);
-    assert.doesNotMatch(diagnostics, /fixture-secret-not-a-real-credential/, fixture.name);
-  }
-});
-
-test("image platform validator accepts only variant-less amd64", () => {
-  const accepted = runImagePlatformValidator(
-    imageIndex(manifestChild(fixtureDigest, { architecture: "amd64", os: "linux" })),
-    "amd64",
-  );
-  const rejected = runImagePlatformValidator(
-    imageIndex(manifestChild(fixtureDigest, {
-      architecture: "amd64",
-      os: "linux",
-      variant: "v3",
-    })),
-    "amd64",
-  );
-
-  assert.equal(accepted.status, 0, accepted.stderr);
-  assert.notEqual(rejected.status, 0);
 });

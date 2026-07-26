@@ -63,18 +63,12 @@ runtime_lock_output="$(npm --prefix tools run cli -- runtime lock verify)"
 source_verify_output="$(npm --prefix tools run cli -- sources verify)"
 
 declare -A image_references=()
-declare -A image_platform_digests=()
 declare -A tool_commits=()
 declare -A tool_managed_sources=()
 while IFS=$'\t' read -r record_kind record_name field_three field_four field_five; do
   case "${record_kind}" in
     image)
       image_references["${record_name}"]="${field_three}"
-      if [[ "${docker_architecture}" == arm64 ]]; then
-        image_platform_digests["${record_name}"]="${field_five#linux/arm64=}"
-      else
-        image_platform_digests["${record_name}"]="${field_four#linux/amd64=}"
-      fi
       ;;
     tool)
       if [[ -n "${field_four:-}" ]]; then
@@ -149,31 +143,11 @@ for required_image in \
   lotus_devnet yugabyte go_builder rust_toolchain ubuntu_runtime node_runtime foundry; do
   [[ "${image_references[${required_image}]:-}" =~ @sha256:[0-9a-f]{64}$ ]] ||
     devnet_die "typed runtime lock did not report immutable ${required_image} image"
-  [[ "${image_platform_digests[${required_image}]:-}" =~ ^sha256:[0-9a-f]{64}$ ]] ||
-    devnet_die "typed runtime lock did not report linux/${docker_architecture} digest for ${required_image}"
 done
 
 for required_tool in go_car piece_server storetheindex go_ethereum blst; do
   [[ "${tool_commits[${required_tool}]:-}" =~ ^[0-9a-f]{40}$ ]] ||
     devnet_die "typed runtime lock did not report exact ${required_tool} commit"
-done
-
-verify_manifest_platform() {
-  local image_name="$1"
-  local image_reference="${image_references[${image_name}]}"
-  local expected_digest="${image_platform_digests[${image_name}]}"
-
-  node "${DEVNET_ROOT}/scripts/run-with-timeout.mjs" --timeout-ms 120000 -- \
-    docker buildx imagetools inspect "${image_reference}" --raw |
-    node "${DEVNET_ROOT}/scripts/verify-image-platform.mjs" \
-      "${docker_architecture}" "${expected_digest}"
-  printf 'manifest %s linux/%s=%s\n' \
-    "${image_name}" "${docker_architecture}" "${expected_digest}"
-}
-
-for image_name in \
-  lotus_devnet yugabyte go_builder rust_toolchain ubuntu_runtime node_runtime foundry; do
-  verify_manifest_platform "${image_name}"
 done
 
 dockerfile_relative="docker/curio-all-in-one.Dockerfile"

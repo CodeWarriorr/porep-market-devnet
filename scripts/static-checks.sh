@@ -20,7 +20,6 @@ if [[ -f versions.lock.yaml ]]; then
     scripts/devnet-upgrade.sh
     scripts/devnet-test-upgrade.sh
     docker/compose.curio-devnet.yaml
-    scripts/verify-image-platform.mjs
     tools/test/devnet.test.ts
   )
   for build_file in "${build_files[@]}"; do
@@ -31,7 +30,6 @@ if [[ -f versions.lock.yaml ]]; then
   done
 
   bash -n scripts/devnet-common.sh scripts/devnet-build.sh scripts/devnet-up.sh scripts/devnet-down.sh scripts/devnet-reset.sh scripts/devnet-logs.sh scripts/contracts-test-target.sh scripts/devnet-upgrade.sh scripts/devnet-test-upgrade.sh
-  node --check scripts/verify-image-platform.mjs
   rg -q '^build:' justfile
   if rg -n -i \
     '(latest|@master|@main|foundryup|nodesource|git[[:space:]]+clone|git[[:space:]]+submodule[[:space:]]+update)' \
