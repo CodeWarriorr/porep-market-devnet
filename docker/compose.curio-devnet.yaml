@@ -1,0 +1,92 @@
+services:
+  lotus:
+    image: ${DEVNET_IMAGE_NAMESPACE}/lotus:${DEVNET_CURIO_SHORT_COMMIT}
+    init: true
+    restart: on-failure:5
+    logging: {driver: json-file, options: {max-size: 20m, max-file: "3"}}
+    healthcheck:
+      test: [CMD, lotus, net, id]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+    ports: ["127.0.0.1:2234:1234"]
+    environment: [LOTUS_FEVM_ENABLEETHRPC=true, LOTUS_API_LISTENADDRESS=/dns/lotus/tcp/1234/http, LOTUS_CHAININDEXER_ENABLEINDEXER=true, LOTUS_NETWORK_VERSION=27, LOTUS_FIREHORSE_UPGRADE_EPOCH=200]
+    volumes: ["${DEVNET_DATA_DIR}/lotus:/var/lib/lotus:rw", "${DEVNET_DATA_DIR}/genesis:/var/lib/genesis:rw", "${DEVNET_PROOF_PARAMETERS_DIR}:/var/tmp/filecoin-proof-parameters:rw"]
+  contracts-bootstrap:
+    image: ${DEVNET_IMAGE_NAMESPACE}/contracts-bootstrap:${DEVNET_CURIO_SHORT_COMMIT}
+    init: true
+    restart: "no"
+    logging: {driver: json-file, options: {max-size: 20m, max-file: "3"}}
+    depends_on: [lotus]
+    environment: [CONTRACT_SOURCE_MODE=local, FILECOIN_SERVICES_LOCAL_PATH=/opt/local-src/filecoin-services, MULTICALL3_LOCAL_PATH=/opt/local-src/multicall3, LOTUS_RPC_URL=http://lotus:1234/rpc/v1, CHAIN_ID=31415926]
+    volumes: ["${DEVNET_DATA_DIR}/contracts:/var/lib/contracts:rw", "${DEVNET_DATA_DIR}/lotus:/var/lib/lotus:ro", "${DEVNET_DATA_DIR}/genesis:/var/lib/genesis:ro", "${DEVNET_FILECOIN_SERVICES_SOURCE}:/opt/local-src/filecoin-services:ro", "${DEVNET_MULTICALL3_SOURCE}:/opt/local-src/multicall3:ro"]
+  lotus-miner:
+    image: ${DEVNET_IMAGE_NAMESPACE}/lotus-miner:${DEVNET_CURIO_SHORT_COMMIT}
+    init: true
+    restart: on-failure:5
+    logging: {driver: json-file, options: {max-size: 20m, max-file: "3"}}
+    healthcheck:
+      test: [CMD, lotus-miner, info]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+    ports: ["127.0.0.1:22345:2345"]
+    environment: [LOTUS_API_LISTENADDRESS=/dns/lotus-miner/tcp/2345/http, LOTUS_API_REMOTELISTENADDRESS=lotus-miner:2345, LOTUS_SEALING_BATCHPRECOMMITS=false, LOTUS_SEALING_AGGREGATECOMMITS=false, LOTUS_SUBSYSTEMS_ENABLEMARKETS=false, LOTUS_SEALING_WAITDEALSDELAY=20s]
+    volumes: ["${DEVNET_DATA_DIR}/lotus-miner:/var/lib/lotus-miner:rw", "${DEVNET_DATA_DIR}/lotus:/var/lib/lotus:ro", "${DEVNET_DATA_DIR}/genesis:/var/lib/genesis:ro", "${DEVNET_PROOF_PARAMETERS_DIR}:/var/tmp/filecoin-proof-parameters:rw"]
+  curio:
+    image: ${DEVNET_IMAGE_NAMESPACE}/curio:${DEVNET_CURIO_SHORT_COMMIT}
+    init: true
+    restart: on-failure:5
+    logging: {driver: json-file, options: {max-size: 20m, max-file: "3"}}
+    healthcheck:
+      test: [CMD, bash, -ec, "exec 3<>/dev/tcp/curio/12300"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+    ports: ["127.0.0.1:22300:12300", "127.0.0.1:22310:12310", "127.0.0.1:24701:4701"]
+    environment: [CURIO_REPO_PATH=/var/lib/curio, CURIO_HARMONYDB_HOSTS=yugabyte, CONTRACT_ENV_FILE=/var/lib/contracts/curio-devnet.env]
+    volumes: ["${DEVNET_DATA_DIR}/curio:/var/lib/curio:rw", "${DEVNET_DATA_DIR}/lotus:/var/lib/lotus:ro", "${DEVNET_DATA_DIR}/lotus-miner:/var/lib/lotus-miner:ro", "${DEVNET_DATA_DIR}/contracts:/var/lib/contracts:rw", "${DEVNET_PROOF_PARAMETERS_DIR}:/var/tmp/filecoin-proof-parameters:rw"]
+  yugabyte:
+    image: ${DEVNET_YUGABYTE_IMAGE}
+    init: true
+    restart: on-failure:5
+    logging: {driver: json-file, options: {max-size: 20m, max-file: "3"}}
+    healthcheck:
+      test: [CMD, bin/ysqlsh, -h, yugabyte, -U, yugabyte, -d, yugabyte, -c, "select 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+    ports: ["127.0.0.1:25433:5433", "127.0.0.1:29042:9042", "127.0.0.1:25434:15433"]
+    command: [bin/yugabyted, start, --base_dir=/home/yugabyte/yb_data, --background=false, --advertise_address=yugabyte]
+    volumes: ["${DEVNET_DATA_DIR}/yugabyte:/home/yugabyte/yb_data:rw", "${DEVNET_DATA_DIR}/yugabyte-disk0:/mnt/disk0:rw", "${DEVNET_DATA_DIR}/yugabyte-disk1:/mnt/disk1:rw"]
+  piece-server:
+    image: ${DEVNET_IMAGE_NAMESPACE}/piece-server:${DEVNET_CURIO_SHORT_COMMIT}
+    init: true
+    restart: on-failure:5
+    logging: {driver: json-file, options: {max-size: 20m, max-file: "3"}}
+    healthcheck:
+      test: [CMD, bash, -ec, "exec 3<>/dev/tcp/piece-server/12320"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+    ports: ["127.0.0.1:22320:12320"]
+    environment: [CURIO_MK12_CLIENT_REPO=/var/lib/curio-client]
+    volumes: ["${DEVNET_DATA_DIR}/piece-server:/var/lib/curio-client:rw", "${DEVNET_DATA_DIR}/piece-server/.synapse-sdk.ready:/var/lib/curio-client/.synapse-sdk.ready:ro", "${DEVNET_DATA_DIR}/curio:/var/lib/curio:ro", "${DEVNET_DATA_DIR}/lotus:/var/lib/lotus:ro", "${DEVNET_DATA_DIR}/lotus-miner:/var/lib/lotus-miner:ro", "${DEVNET_DATA_DIR}/contracts:/var/lib/contracts:rw", "${DEVNET_PROOF_PARAMETERS_DIR}:/var/tmp/filecoin-proof-parameters:rw"]
+  indexer:
+    image: ${DEVNET_IMAGE_NAMESPACE}/indexer:${DEVNET_CURIO_SHORT_COMMIT}
+    init: true
+    restart: on-failure:5
+    logging: {driver: json-file, options: {max-size: 20m, max-file: "3"}}
+    healthcheck:
+      test: [CMD, bash, -ec, "exec 3<>/dev/tcp/127.0.0.1/3000"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+    ports: ["127.0.0.1:23000:3000", "127.0.0.1:23001:3001", "127.0.0.1:23002:3002", "127.0.0.1:23003:3003"]
+    volumes: ["${DEVNET_DATA_DIR}/indexer:/var/lib/indexer:rw", "${DEVNET_DATA_DIR}/curio:/var/lib/curio:ro", "${DEVNET_DATA_DIR}/lotus:/var/lib/lotus:ro", "${DEVNET_DATA_DIR}/lotus-miner:/var/lib/lotus-miner:ro", "${DEVNET_PROOF_PARAMETERS_DIR}:/var/tmp/filecoin-proof-parameters:rw"]

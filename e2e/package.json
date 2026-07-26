@@ -1,0 +1,19 @@
+{
+  "name": "porep-market-v2-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:unit": "tsx --test \"test/**/*.test.ts\"",
+    "matrix": "tsx src/matrix.ts",
+    "scenario": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "ethers": "^6.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.0"
+  }
+}

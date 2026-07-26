@@ -1,0 +1,335 @@
+schema_version: 1
+selected_at: "2026-07-24T12:59:16+02:00"
+
+network:
+  chain_id: 31415926
+  genesis_network_version: 27
+  genesis_actors_version: 17
+  firehorse_upgrade_epoch: 200
+  required_network_version: 28
+  required_actors_version: 18
+  actors_v17:
+    repository: https://github.com/filecoin-project/builtin-actors.git
+    tag: v17.0.0
+    commit: 88c3befb5c0a49d4e61af38e934c1ae64629885b
+  actors_v18:
+    repository: https://github.com/filecoin-project/builtin-actors.git
+    tag: v18.0.0
+    commit: 2fd4812f2f964bb854793b78fdb8756e19753407
+    manifest_cid: bafy2bzaced35gjxagazf2fne5dakbok5abmivsh7cq7huwfuptebgwjmcpcf6
+    storage_miner_actor_cid: bafk2bzacedhvcxgdz2w75izwa5s5dwvsrxsnzkjcbpbresziyrrjrsvjzwvxe
+
+sources:
+  blst:
+    repository: https://github.com/supranational/blst.git
+    tag: v0.3.14
+    commit: 8c7db7fe8d2ce6e76dc398ebd4d475c0ec564355
+    compatibility: filecoin-ffi Cargo.lock crate blst 0.3.14
+    submodules: {}
+  curio:
+    repository: https://github.com/CodeWarriorr/curio.git
+    upstream_repository: https://github.com/filecoin-project/curio.git
+    commit: ce15c0c92209366a5523b803e9c159baa2ffb66a
+    compatibility: Lotus v1.36.0, go-state-types v0.18.0, NV28
+    submodules:
+      extern/filecoin-ffi: fbe802089480458d730cbce8a3ca83dcd84a4cd1
+      extern/supraseal/deps/sppark: 73c8a4586b15fc7227f8736d3f31ff6b35d261a4
+  lotus:
+    repository: https://github.com/filecoin-project/lotus.git
+    tag: v1.36.0
+    commit: 154c0c3a46e92006008818bb06aaf959e2e705a9
+    compatibility: debug DevNet starts at NV27 and upgrades to NV28 at epoch 200
+    submodules:
+      extern/filecoin-ffi: fbe802089480458d730cbce8a3ca83dcd84a4cd1
+      extern/serialization-vectors: 5bfb928910b01ac8b940a693af2884f7f8276211
+      extern/test-vectors: 195bc065973ec35826621823964a5c3cbe5fa56d
+  porep_market:
+    repository: https://github.com/fidlabs/porep-market.git
+    commit: 746bd19d89f3d55eb0f253e2f3fd92657e29984a
+    migration_source_commit: 803942a5f439e0a588da245727197ca22546bb1f
+    submodules:
+      lib/filecoin-pay: f0a40fe287ecb08c2c20b828bdbadd2437988bba
+      lib/filecoin-pay/lib/forge-std: 3b20d60d14b343ee4f908cb8079495c07f5e8981
+      lib/filecoin-pay/lib/fvm-solidity: 346eccf2f4daf5ad2aaab3d576f5c5d8955199f7
+      lib/filecoin-pay/lib/fvm-solidity/lib/forge-std: 8bbcf6e3f8f62f419e5429a0bd89331c85c37824
+      lib/filecoin-pay/lib/openzeppelin-contracts: 441dc141ac99622de7e535fa75dfc74af939019c
+      lib/filecoin-pay/lib/openzeppelin-contracts/lib/erc4626-tests: 8b1d7c2ac248c33c3506b1bff8321758943c5e11
+      lib/filecoin-pay/lib/openzeppelin-contracts/lib/forge-std: 1eea5bae12ae557d589f9f0f0edae2faa47cb262
+      lib/filecoin-pay/lib/openzeppelin-contracts/lib/halmos-cheatcodes: c0d865508c0fee0a11b97732c5e90f9cad6b65a5
+      lib/filecoin-pay/lib/prb-math: 1f0c080d02d165544b7aea840d1e8ae4dd44d49c
+      lib/filecoin-solidity: 2f032e4a9d8ee36c8666c1f69e145bab1a467430
+      lib/filecoin-solidity/lib/buffer: f942d329b73206bf11bf699178f7bc7136163c8f
+      lib/filecoin-solidity/lib/forge-std: f73c73d2018eb6a111f35e4dae7b4f27401e9421
+      lib/filecoin-solidity/lib/forge-std/lib/ds-test: e282159d5170298eb2455a6c05280ab5a73a4ef0
+      lib/filecoin-solidity/lib/openzeppelin-contracts-upgradeable: 3d4c0d5741b131c231e558d7a6213392ab3672a5
+      lib/filecoin-solidity/lib/openzeppelin-contracts-upgradeable/lib/erc4626-tests: 8b1d7c2ac248c33c3506b1bff8321758943c5e11
+      lib/filecoin-solidity/lib/openzeppelin-contracts-upgradeable/lib/forge-std: c2236853aadb8e2d9909bbecdc490099519b70a4
+      lib/filecoin-solidity/lib/openzeppelin-contracts-upgradeable/lib/forge-std/lib/ds-test: 6da7dd8f7395f83e1fb6fa88a64ba9a030f85d4f
+      lib/filecoin-solidity/lib/solidity-cborutils: 85c4254acd81d855c953090111931ca811853bec
+      lib/forge-std: 1801b0541f4fda118a10798fd3486bb7051c5dd6
+      lib/fvm-solidity: 2b3412a8555cfa7451199e0ba82c1ca870f2f45b
+      lib/fvm-solidity/lib/forge-std: 8987040ede9553cea20c95ad40d0455930f9c8e0
+      lib/openzeppelin-contracts: fcbae5394ae8ad52d8e580a3477db99814b9d565
+      lib/openzeppelin-contracts/lib/erc4626-tests: 232ff9ba8194e406967f52ecc5cb52ed764209e9
+      lib/openzeppelin-contracts/lib/forge-std: 3b20d60d14b343ee4f908cb8079495c07f5e8981
+      lib/openzeppelin-contracts/lib/halmos-cheatcodes: 7328abe100445fc53885c21d0e713b95293cf14c
+      lib/openzeppelin-contracts-upgradeable: aa677e9d28ed78fc427ec47ba2baef2030c58e7c
+      lib/openzeppelin-contracts-upgradeable/lib/erc4626-tests: 232ff9ba8194e406967f52ecc5cb52ed764209e9
+      lib/openzeppelin-contracts-upgradeable/lib/forge-std: 3b20d60d14b343ee4f908cb8079495c07f5e8981
+      lib/openzeppelin-contracts-upgradeable/lib/halmos-cheatcodes: 7328abe100445fc53885c21d0e713b95293cf14c
+      lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts: fcbae5394ae8ad52d8e580a3477db99814b9d565
+      lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/lib/erc4626-tests: 232ff9ba8194e406967f52ecc5cb52ed764209e9
+      lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/lib/forge-std: 3b20d60d14b343ee4f908cb8079495c07f5e8981
+      lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/lib/halmos-cheatcodes: 7328abe100445fc53885c21d0e713b95293cf14c
+  filecoin_pay:
+    repository: https://github.com/FilOzone/filecoin-pay.git
+    commit: 755ca20054dae88e9e28dc569e696e822c59907f
+    submodules:
+      lib/forge-std: 3b20d60d14b343ee4f908cb8079495c07f5e8981
+      lib/fvm-solidity: 346eccf2f4daf5ad2aaab3d576f5c5d8955199f7
+      lib/fvm-solidity/lib/forge-std: 8bbcf6e3f8f62f419e5429a0bd89331c85c37824
+      lib/openzeppelin-contracts: 441dc141ac99622de7e535fa75dfc74af939019c
+      lib/openzeppelin-contracts/lib/erc4626-tests: 8b1d7c2ac248c33c3506b1bff8321758943c5e11
+      lib/openzeppelin-contracts/lib/forge-std: 1eea5bae12ae557d589f9f0f0edae2faa47cb262
+      lib/openzeppelin-contracts/lib/halmos-cheatcodes: c0d865508c0fee0a11b97732c5e90f9cad6b65a5
+      lib/prb-math: 1f0c080d02d165544b7aea840d1e8ae4dd44d49c
+  contract_metaallocator:
+    repository: https://github.com/fidlabs/contract-metaallocator.git
+    commit: 41811a8bd6478ffbce4db47720fd9ac521b9e048
+    submodules:
+      lib/filecoin-project-filecoin-solidity: 2f032e4a9d8ee36c8666c1f69e145bab1a467430
+      lib/filecoin-project-filecoin-solidity/lib/buffer: f942d329b73206bf11bf699178f7bc7136163c8f
+      lib/filecoin-project-filecoin-solidity/lib/forge-std: f73c73d2018eb6a111f35e4dae7b4f27401e9421
+      lib/filecoin-project-filecoin-solidity/lib/forge-std/lib/ds-test: e282159d5170298eb2455a6c05280ab5a73a4ef0
+      lib/filecoin-project-filecoin-solidity/lib/openzeppelin-contracts-upgradeable: 3d4c0d5741b131c231e558d7a6213392ab3672a5
+      lib/filecoin-project-filecoin-solidity/lib/openzeppelin-contracts-upgradeable/lib/erc4626-tests: 8b1d7c2ac248c33c3506b1bff8321758943c5e11
+      lib/filecoin-project-filecoin-solidity/lib/openzeppelin-contracts-upgradeable/lib/forge-std: c2236853aadb8e2d9909bbecdc490099519b70a4
+      lib/filecoin-project-filecoin-solidity/lib/openzeppelin-contracts-upgradeable/lib/forge-std/lib/ds-test: 6da7dd8f7395f83e1fb6fa88a64ba9a030f85d4f
+      lib/filecoin-project-filecoin-solidity/lib/solidity-cborutils: 85c4254acd81d855c953090111931ca811853bec
+      lib/filecoin-solidity: 461d99318dd5b0114141e128e6c4ec72b33534f5
+      lib/filecoin-solidity/lib/buffer: f942d329b73206bf11bf699178f7bc7136163c8f
+      lib/filecoin-solidity/lib/solidity-bignumber: 39dbb9e2dd186a549c9ad7eb1b4b204dc6705245
+      lib/filecoin-solidity/lib/solidity-cborutils: 85c4254acd81d855c953090111931ca811853bec
+      lib/filecoin-solidity/testing/builtin-actors: f78bf08a1f444544c22a5dea4d329b88705b0c04
+      lib/forge-std: bb4ceea94d6f10eeb5b41dc2391c6c8bf8e734ef
+      lib/openzeppelin-contracts: dbb6104ce834628e473d2173bbc9d47f81a9eec3
+      lib/openzeppelin-contracts/lib/erc4626-tests: 8b1d7c2ac248c33c3506b1bff8321758943c5e11
+      lib/openzeppelin-contracts/lib/forge-std: eb980e1d4f0e8173ec27da77297ae411840c8ccb
+      lib/openzeppelin-contracts/lib/forge-std/lib/ds-test: cd98eff28324bfac652e63a239a60632a761790b
+      lib/openzeppelin-contracts-upgradeable: 723f8cab09cdae1aca9ec9cc1cfa040c2d4b06c1
+      lib/openzeppelin-contracts-upgradeable/lib/erc4626-tests: 8b1d7c2ac248c33c3506b1bff8321758943c5e11
+      lib/openzeppelin-contracts-upgradeable/lib/forge-std: eb980e1d4f0e8173ec27da77297ae411840c8ccb
+      lib/openzeppelin-contracts-upgradeable/lib/forge-std/lib/ds-test: cd98eff28324bfac652e63a239a60632a761790b
+      lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts: dbb6104ce834628e473d2173bbc9d47f81a9eec3
+      lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/lib/erc4626-tests: 8b1d7c2ac248c33c3506b1bff8321758943c5e11
+      lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/lib/forge-std: eb980e1d4f0e8173ec27da77297ae411840c8ccb
+      lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/lib/forge-std/lib/ds-test: cd98eff28324bfac652e63a239a60632a761790b
+      lib/openzeppelin-foundry-upgrades: 359589365aeba6cf41d39bae69867446b194e582
+      lib/openzeppelin-foundry-upgrades/lib/forge-std: b6a506db2262cad5ff982a87789ee6d1558ec861
+      lib/openzeppelin-foundry-upgrades/lib/solidity-stringutils: 4b2fcc43fa0426e19ce88b1f1ec16f5903a2e461
+      lib/openzeppelin-foundry-upgrades/lib/solidity-stringutils/lib/ds-test: 0a5da56b0d65960e6a994d2ec8245e6edd38c248
+  filecoin_services:
+    repository: https://github.com/FilOzone/filecoin-services.git
+    tag: v1.1.0
+    commit: e485abae3f89775b3c9a0014c74a60ae9e98fe8c
+    submodules:
+      service_contracts/lib/forge-std: f46d8301cf732f4f83846565aa475628265e51e0
+      service_contracts/lib/fws-payments: f0a40fe287ecb08c2c20b828bdbadd2437988bba
+      service_contracts/lib/fws-payments/lib/forge-std: 3b20d60d14b343ee4f908cb8079495c07f5e8981
+      service_contracts/lib/fws-payments/lib/fvm-solidity: 346eccf2f4daf5ad2aaab3d576f5c5d8955199f7
+      service_contracts/lib/fws-payments/lib/fvm-solidity/lib/forge-std: 8bbcf6e3f8f62f419e5429a0bd89331c85c37824
+      service_contracts/lib/fws-payments/lib/openzeppelin-contracts: 441dc141ac99622de7e535fa75dfc74af939019c
+      service_contracts/lib/fws-payments/lib/openzeppelin-contracts/lib/erc4626-tests: 8b1d7c2ac248c33c3506b1bff8321758943c5e11
+      service_contracts/lib/fws-payments/lib/openzeppelin-contracts/lib/forge-std: 1eea5bae12ae557d589f9f0f0edae2faa47cb262
+      service_contracts/lib/fws-payments/lib/openzeppelin-contracts/lib/halmos-cheatcodes: c0d865508c0fee0a11b97732c5e90f9cad6b65a5
+      service_contracts/lib/fws-payments/lib/prb-math: 1f0c080d02d165544b7aea840d1e8ae4dd44d49c
+      service_contracts/lib/openzeppelin-contracts: a6ae04acf8e38ed49a70fdce5389df2752e3ecc4
+      service_contracts/lib/openzeppelin-contracts/lib/erc4626-tests: 232ff9ba8194e406967f52ecc5cb52ed764209e9
+      service_contracts/lib/openzeppelin-contracts/lib/forge-std: 3b20d60d14b343ee4f908cb8079495c07f5e8981
+      service_contracts/lib/openzeppelin-contracts/lib/halmos-cheatcodes: 7328abe100445fc53885c21d0e713b95293cf14c
+      service_contracts/lib/openzeppelin-contracts-upgradeable: 3bfc52f2fbf5be95de632f346169dac6a669bd57
+      service_contracts/lib/openzeppelin-contracts-upgradeable/lib/erc4626-tests: 232ff9ba8194e406967f52ecc5cb52ed764209e9
+      service_contracts/lib/openzeppelin-contracts-upgradeable/lib/forge-std: 3b20d60d14b343ee4f908cb8079495c07f5e8981
+      service_contracts/lib/openzeppelin-contracts-upgradeable/lib/halmos-cheatcodes: 7328abe100445fc53885c21d0e713b95293cf14c
+      service_contracts/lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts: a6ae04acf8e38ed49a70fdce5389df2752e3ecc4
+      service_contracts/lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/lib/erc4626-tests: 232ff9ba8194e406967f52ecc5cb52ed764209e9
+      service_contracts/lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/lib/forge-std: 3b20d60d14b343ee4f908cb8079495c07f5e8981
+      service_contracts/lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/lib/halmos-cheatcodes: 7328abe100445fc53885c21d0e713b95293cf14c
+      service_contracts/lib/pdp: fd1b650defa97e4f86a638328553d84d61ea26e0
+      service_contracts/lib/pdp/lib/forge-std: 0e7097750918380d84dd3cfdef595bee74dabb70
+      service_contracts/lib/pdp/lib/fvm-solidity: d8d2fb5899440ff38b5bb484557b825ac0b642e2
+      service_contracts/lib/pdp/lib/fvm-solidity/lib/forge-std: 8bbcf6e3f8f62f419e5429a0bd89331c85c37824
+      service_contracts/lib/pdp/lib/openzeppelin-contracts: dac63c4612df765c9d0f24d9148e912b8cd5032f
+      service_contracts/lib/pdp/lib/openzeppelin-contracts/lib/erc4626-tests: 8b1d7c2ac248c33c3506b1bff8321758943c5e11
+      service_contracts/lib/pdp/lib/openzeppelin-contracts/lib/forge-std: 1eea5bae12ae557d589f9f0f0edae2faa47cb262
+      service_contracts/lib/pdp/lib/openzeppelin-contracts/lib/halmos-cheatcodes: c0d865508c0fee0a11b97732c5e90f9cad6b65a5
+      service_contracts/lib/pdp/lib/openzeppelin-contracts-upgradeable: 2f0d9bd3da66a4072081d396760fecb517f50b56
+      service_contracts/lib/pdp/lib/openzeppelin-contracts-upgradeable/lib/erc4626-tests: 8b1d7c2ac248c33c3506b1bff8321758943c5e11
+      service_contracts/lib/pdp/lib/openzeppelin-contracts-upgradeable/lib/forge-std: 1eea5bae12ae557d589f9f0f0edae2faa47cb262
+      service_contracts/lib/pdp/lib/openzeppelin-contracts-upgradeable/lib/halmos-cheatcodes: c0d865508c0fee0a11b97732c5e90f9cad6b65a5
+      service_contracts/lib/pdp/lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts: dac63c4612df765c9d0f24d9148e912b8cd5032f
+      service_contracts/lib/pdp/lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/lib/erc4626-tests: 8b1d7c2ac248c33c3506b1bff8321758943c5e11
+      service_contracts/lib/pdp/lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/lib/forge-std: 1eea5bae12ae557d589f9f0f0edae2faa47cb262
+      service_contracts/lib/pdp/lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/lib/halmos-cheatcodes: c0d865508c0fee0a11b97732c5e90f9cad6b65a5
+      service_contracts/lib/pdp/lib/pyth-sdk-solidity: 11d6bcfc2e56885535a9a8e3c8417847cb20be14
+      service_contracts/lib/session-key-registry: 74fc4e94500859709a97b1c64981cfae52f9bdfe
+      service_contracts/lib/session-key-registry/lib/forge-std: 8bbcf6e3f8f62f419e5429a0bd89331c85c37824
+  multicall3:
+    repository: https://github.com/mds1/multicall3.git
+    commit: b667d67ecfa5361a81e8f110234ce242613b0012
+    submodules:
+      lib/forge-std: c2236853aadb8e2d9909bbecdc490099519b70a4
+      lib/forge-std/lib/ds-test: 6da7dd8f7395f83e1fb6fa88a64ba9a030f85d4f
+  fips:
+    repository: https://github.com/filecoin-project/FIPs.git
+    commit: 3337f496877a9125b6efc9806b243b9389b69060
+    documents:
+      - FIPS/fip-0109.md
+      - FIPS/fip-0112.md
+
+images:
+  lotus_devnet:
+    reference: ghcr.io/filecoin-shipyard/lotus-containers:lotus-v1.36.0-devnet
+    index_digest: sha256:aeb1de6103a07ee316d45d09141a8063fc67fa99d14289c38fe0f2aeee84f4a9
+    platforms:
+      linux_amd64: sha256:731dbcecbc3ba69943076e0eb986da030de1509d92100fb7880bc2f23a869ead
+      linux_arm64: sha256:cce2db8da59446ebc2bcd00743798a9b1833258c55499a5bfbffbec66e7e7afe
+  yugabyte:
+    reference: docker.io/yugabytedb/yugabyte:2024.1.0.0-b129
+    index_digest: sha256:5074792658b19c1379d79fdfe418d33a6587c2637422f56d0d224d8bbbe277a8
+    platforms:
+      linux_amd64: sha256:a1f1302c9d1384f77fd06fd71845a9b10f9450282c440cc903edddf0dc11a458
+      linux_arm64: sha256:21893ba85b5d73105418af430e684452026bcaf0e6af245cc036f68797630ef6
+  go_builder:
+    reference: docker.io/library/golang:1.26-trixie
+    index_digest: sha256:4ee9ffa999b4583ce281939cdff828763083610292f252279a0cee77473bd9a7
+    platforms:
+      linux_amd64: sha256:dbb10bd1b3400ba0858e2f7c354fd4556b782c187feeff52789d4ee156a84db8
+      linux_arm64: sha256:d86488d9077169d6dd4fa32e954e8b68a41e94e32c0ec3d3fefdcc017ac9a759
+  rust_toolchain:
+    reference: docker.io/library/rust:1.86.0-slim-bookworm
+    index_digest: sha256:57d415bbd61ce11e2d5f73de068103c7bd9f3188dc132c97cef4a8f62989e944
+    platforms:
+      linux_amd64: sha256:a044f7ab9a762f95be2ee7eb2c49e4d4a4ec60011210de9f7da01d552cae3a55
+      linux_arm64: sha256:7f059ca8afb64fd4cc2d397ed1dedfe7e5c390c7a923b7cf71cfb281141f1bc3
+  ubuntu_runtime:
+    reference: docker.io/library/ubuntu:24.04
+    index_digest: sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90
+    platforms:
+      linux_amd64: sha256:52df9b1ee71626e0088f7d400d5c6b5f7bb916f8f0c82b474289a4ece6cf3faf
+      linux_arm64: sha256:7f622ca8766bccb22f04242ecb6f19f770b2f08827dc4b8c707de5e78a6da7ab
+  node_runtime:
+    reference: docker.io/library/node:24.14.0-bookworm-slim
+    index_digest: sha256:d8e448a56fc63242f70026718378bd4b00f8c82e78d20eefb199224a4d8e33d8
+    platforms:
+      linux_amd64: sha256:4bd6219054c8bebcd26a66bfd8ca0bd6e1024b4b97474c59bb7ee3bbcbef4fe8
+      linux_arm64: sha256:b3e8b37cd3102ef30c77d039f15baffe72c18fa23058c6e18b75a2e2faaad2e3
+  foundry:
+    reference: ghcr.io/foundry-rs/foundry:v1.7.1
+    index_digest: sha256:8347b728d5d393dac1c018691b36f506d23b9dcd78341d40ea0fcb11c3a19cdd
+    platforms:
+      linux_amd64: sha256:bdc584033cefab8be282c7f57c263cda42f04700cd1ec88d64bebe2f645aba72
+      linux_arm64: sha256:0c20baa42962751668e464c7853470e3c06e440acfa3b5da5e4766f2742b0cba
+
+build_tools:
+  node:
+    version: 24.14.0
+  npm:
+    version: 11.9.0
+  foundry:
+    repository: https://github.com/foundry-rs/foundry.git
+    tag: v1.7.1
+    commit: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8
+  go_car:
+    repository: https://github.com/ipld/go-car.git
+    tag: v2.17.0
+    commit: a95c3df95441327b750cc8bfcc74062d6ed3c702
+  piece_server:
+    repository: https://github.com/LexLuthr/piece-server.git
+    tag: v0.0.2
+    commit: 1049cc8bd6d727cf7f9f961be2958963abb0a3e9
+  storetheindex:
+    repository: https://github.com/ipni/storetheindex.git
+    tag: v0.8.41
+    commit: 9c6c25cd958e9d2f0a892bffbd4144eccca372d5
+  go_ethereum:
+    repository: https://github.com/ethereum/go-ethereum.git
+    tag: v1.17.4
+    commit: 36a7dc72e96b3f42846be925cfeb2fad18489917
+  blst:
+    managed_source: blst
+    repository: https://github.com/supranational/blst.git
+    tag: v0.3.14
+    commit: 8c7db7fe8d2ce6e76dc398ebd4d475c0ec564355
+    compatibility: filecoin-ffi Cargo.lock crate blst 0.3.14
+
+expected_host:
+  architecture:
+    - arm64
+    - amd64
+  minimum_node_major: 20
+  docker_compose_project: porep-market-curio-devnet
+
+runtime:
+  compose_project: porep-market-curio-devnet
+  services:
+    - lotus
+    - contracts-bootstrap
+    - lotus-miner
+    - curio
+    - yugabyte
+    - piece-server
+    - indexer
+  ports:
+    lotus_rpc:
+      service: lotus
+      host: 2234
+      container: 1234
+    lotus_miner_api:
+      service: lotus-miner
+      host: 22345
+      container: 2345
+    curio_api:
+      service: curio
+      host: 22300
+      container: 12300
+    curio_market:
+      service: curio
+      host: 22310
+      container: 12310
+    curio_ui:
+      service: curio
+      host: 24701
+      container: 4701
+    piece_server:
+      service: piece-server
+      host: 22320
+      container: 12320
+    yugabyte_ysql:
+      service: yugabyte
+      host: 25433
+      container: 5433
+    yugabyte_ycql:
+      service: yugabyte
+      host: 29042
+      container: 9042
+    yugabyte_ui:
+      service: yugabyte
+      host: 25434
+      container: 15433
+    indexer_3000:
+      service: indexer
+      host: 23000
+      container: 3000
+    indexer_3001:
+      service: indexer
+      host: 23001
+      container: 3001
+    indexer_3002:
+      service: indexer
+      host: 23002
+      container: 3002
+    indexer_3003:
+      service: indexer
+      host: 23003
+      container: 3003

@@ -1,0 +1,155 @@
+import type { ScenarioContext } from "../runtime.js";
+import { verifyCurioDevnet } from "../devnet/curio.js";
+import { runAccessControlGuards } from "./accessControlGuards.js";
+import { runActivationLifecycleGuards } from "./activationLifecycleGuards.js";
+import { runActorTokenGuards } from "./actorTokenGuards.js";
+import { runBasicActivationFlow } from "./basicActivationFlow.js";
+import { runEvidenceAuthorityGuards } from "./evidenceAuthorityGuards.js";
+import { runEvidenceNoClaimActivationGuard } from "./evidenceNoClaimActivationGuard.js";
+import { runFullAvailableFlow } from "./fullAvailableFlow.js";
+import { runMultiClaimEvidenceBatches } from "./multiClaimEvidenceBatches.js";
+import { runNegativeActivationBeforeEvidence } from "./negativeActivationFlow.js";
+import { runSettlementGuards } from "./settlementGuards.js";
+import { runSharedClientMultiRailSettlement } from "./sharedClientMultiRailSettlement.js";
+import { runProposalSmoke, runValidatorRailSmoke } from "./smokeFlows.js";
+import { runDirectOnboardingNotification } from "./directOnboardingNotification.js";
+import { runDirectOnboardingNotificationFailure } from "./directOnboardingNotificationFailure.js";
+import { runSectorStatusActive, runSectorStatusNegative } from "./sectorStatus.js";
+import { runUpgradeContinuity } from "./upgradeContinuity.js";
+import { runTerminationSettlement } from "./terminationSettlement.js";
+import { runCurioRestartReplay } from "./curioRestartReplay.js";
+
+export type ScenarioTag =
+  | "contract"
+  | "curio"
+  | "sealing"
+  | "upgrade"
+  | "security";
+
+export type ScenarioDefinition = {
+  run: (context: ScenarioContext) => Promise<void>;
+  tags: ScenarioTag[];
+  timeoutMs: number;
+  requiredContracts: string[];
+  fixtures?: Array<"active-sector">;
+};
+
+const MARKET_CONTRACTS = [
+  "PoRepMarket",
+  "SPRegistry",
+  "ValidatorFactory",
+  "ValidatorBeacon",
+  "DataCapEvidenceAdapter",
+  "FilecoinPay",
+  "SLIOracle",
+  "MetaAllocator",
+  "MockUSDC",
+] as const;
+const CONTRACT_TIMEOUT_MS = 10 * 60_000;
+const CURIO_TIMEOUT_MS = 2 * 60 * 60_000;
+
+function contract(
+  run: ScenarioDefinition["run"],
+  tags: ScenarioTag[] = ["contract"],
+): ScenarioDefinition {
+  return {
+    run,
+    tags,
+    timeoutMs: CONTRACT_TIMEOUT_MS,
+    requiredContracts: [...MARKET_CONTRACTS],
+  };
+}
+
+function sealing(
+  run: ScenarioDefinition["run"],
+  tags: ScenarioTag[] = ["curio", "sealing"],
+): ScenarioDefinition {
+  return {
+    run,
+    tags,
+    timeoutMs: CURIO_TIMEOUT_MS,
+    requiredContracts: [...MARKET_CONTRACTS],
+  };
+}
+
+export const scenarioDefinitions: Record<string, ScenarioDefinition> = {
+  "access-control-guards": contract(runAccessControlGuards, ["contract", "security"]),
+  "activation-lifecycle-guards": sealing(runActivationLifecycleGuards, ["curio", "sealing", "security"]),
+  "actor-token-guards": contract(runActorTokenGuards, ["contract", "security"]),
+  "basic-activation": sealing(runBasicActivationFlow),
+  "direct-onboarding-notification": {
+    run: runDirectOnboardingNotification,
+    tags: ["curio", "sealing"],
+    timeoutMs: CURIO_TIMEOUT_MS,
+    requiredContracts: [...MARKET_CONTRACTS, "NotificationReceiver"],
+  },
+  "direct-onboarding-notification-failure": {
+    run: runDirectOnboardingNotificationFailure,
+    tags: ["curio", "security"],
+    timeoutMs: CURIO_TIMEOUT_MS,
+    requiredContracts: [...MARKET_CONTRACTS, "FailingNotificationReceiver"],
+  },
+  "curio-restart-replay": {
+    run: runCurioRestartReplay,
+    tags: ["curio", "sealing", "security"],
+    timeoutMs: CURIO_TIMEOUT_MS,
+    requiredContracts: [...MARKET_CONTRACTS, "NotificationReceiver"],
+  },
+  "evidence-authority-guards": sealing(runEvidenceAuthorityGuards, ["curio", "sealing", "security"]),
+  "evidence-no-claim-activation-guard": contract(runEvidenceNoClaimActivationGuard, ["contract", "security"]),
+  "full-available": sealing(runFullAvailableFlow),
+  "multi-claim-evidence-batches": sealing(runMultiClaimEvidenceBatches),
+  "negative-activation": contract(runNegativeActivationBeforeEvidence, ["contract", "security"]),
+  "prepare-devnet": {
+    run: verifyCurioDevnet,
+    tags: ["curio"],
+    timeoutMs: CONTRACT_TIMEOUT_MS,
+    requiredContracts: [],
+  },
+  "proposal-smoke": contract(runProposalSmoke),
+  "sector-status-active": {
+    run: runSectorStatusActive,
+    tags: ["curio", "sealing"],
+    timeoutMs: CURIO_TIMEOUT_MS,
+    requiredContracts: [...MARKET_CONTRACTS, "SectorStatusInspector"],
+    fixtures: ["active-sector"],
+  },
+  "sector-status-negative": {
+    run: runSectorStatusNegative,
+    tags: ["curio", "security"],
+    timeoutMs: CONTRACT_TIMEOUT_MS,
+    requiredContracts: ["SectorStatusInspector"],
+  },
+  "settlement-guards": sealing(runSettlementGuards, ["curio", "sealing", "security"]),
+  "shared-client-multi-rail-settlement": sealing(runSharedClientMultiRailSettlement),
+  "termination-settlement": sealing(runTerminationSettlement, ["curio", "sealing", "security"]),
+  "validator-rail-smoke": contract(runValidatorRailSmoke),
+  "upgrade-continuity": {
+    run: runUpgradeContinuity,
+    tags: ["upgrade"],
+    timeoutMs: CURIO_TIMEOUT_MS,
+    requiredContracts: [...MARKET_CONTRACTS],
+  },
+};
+
+export const scenarioNames = Object.keys(scenarioDefinitions).sort();
+
+export function resolveScenario(name: string): ScenarioDefinition {
+  const scenario = scenarioDefinitions[name];
+  if (!scenario) throw new Error(`unknown scenario: ${name}`);
+  return scenario;
+}
+
+export function resolveSuite(name: string): string[] {
+  if (name === "full") {
+    return scenarioNames.filter((scenario) =>
+      !scenarioDefinitions[scenario]!.tags.includes("upgrade")
+    );
+  }
+  if (name === "contract" || name === "curio" || name === "security") {
+    return scenarioNames.filter((scenario) =>
+      scenarioDefinitions[scenario]!.tags.includes(name)
+    );
+  }
+  throw new Error(`unknown suite: ${name}`);
+}
