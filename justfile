@@ -69,7 +69,6 @@ test-fresh:
     @just deploy
     @just test-e2e contract
     @just test-e2e curio
-    @just test-e2e security
     @just verify-runtime
 
 logs service='':

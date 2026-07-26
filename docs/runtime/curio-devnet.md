@@ -123,10 +123,11 @@ were unchanged.
 `just test-all` preserves the current chain, runs the selected PoRep Market
 checkout's canonical Foundry tests, creates a new contract graph, and runs the
 selected suite. `just test-fresh` is the destructive qualification path:
-reset, locked clean deployment, contract/Curio/security suites, and runtime
-identity verification. The contract suite is the fast non-sealing development
-loop; Curio and security suites may perform real sealing or restart work. Use
-individual lifecycle and suite commands during normal development.
+reset, locked clean deployment, contract and Curio suites, and runtime identity
+verification. Those suites already contain every security-tagged scenario. The
+contract suite is the fast non-sealing development loop; Curio and focused
+security suites may perform real sealing or restart work. Use individual
+lifecycle and suite commands during normal development.
 
 Contract deployment and upgrade Forge processes use a private loopback RPC
 adapter that represents Lotus null epochs as empty Ethereum-shaped blocks.

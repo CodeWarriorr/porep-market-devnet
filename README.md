@@ -173,8 +173,9 @@ just test-all /absolute/path/to/porep-market contract
 ```
 
 Use `just test-fresh` only for the explicit qualification lane. It resets the
-chain, deploys the locked clean target, then runs the contract, Curio, and
-security suites.
+chain, deploys the locked clean target, then runs the contract and Curio
+suites. Together those suites already contain every security-tagged scenario;
+use the security suite directly for a focused security run.
 
 ## Upgrade testing
 

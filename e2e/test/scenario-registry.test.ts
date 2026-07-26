@@ -75,6 +75,13 @@ test("named suites resolve to registered scenarios", () => {
     "validator-rail-smoke",
   ]);
   assert.ok(resolveSuite("security").includes("access-control-guards"));
+  const qualificationScenarios = new Set([
+    ...resolveSuite("contract"),
+    ...resolveSuite("curio"),
+  ]);
+  assert.ok(
+    resolveSuite("security").every((name) => qualificationScenarios.has(name)),
+  );
   assert.deepEqual(
     resolveSuite("full"),
     scenarioNames.filter((name) => name !== "upgrade-continuity"),
