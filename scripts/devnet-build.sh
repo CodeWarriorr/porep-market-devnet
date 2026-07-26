@@ -166,6 +166,13 @@ indexer_image="porep-market-curio-devnet/indexer:${curio_short_commit}"
 
 manifest_relative=".runtime/devnet/build/images.json"
 manifest_path="${DEVNET_ROOT}/${manifest_relative}"
+if [[ -f "${manifest_path}" && ! -L "${manifest_path}" ]] &&
+  devnet_write_compose_env >/dev/null 2>&1; then
+  printf 'reusing validated local images manifest=%s\n' "${manifest_relative}"
+  build_succeeded=1
+  exit 0
+fi
+
 manifest_history_directory="${DEVNET_BUILD_DIR}/history"
 archive_name="images.before-${build_started_epoch}-${BASHPID}.json"
 archived_manifest="$(

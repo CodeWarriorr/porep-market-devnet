@@ -1218,6 +1218,8 @@ test("devnet build is bounded and records inspected local image evidence", async
   assert.match(commonScript, /DEVNET_BUILD_TIMEOUT_MS=5400000/);
   assert.match(buildScript, /run-with-timeout\.mjs/);
   assert.doesNotMatch(buildScript, /docker buildx imagetools inspect/);
+  assert.match(buildScript, /devnet_write_compose_env >\/dev\/null 2>&1/);
+  assert.match(buildScript, /reusing validated local images/);
   assert.match(buildScript, /docker image inspect/);
   assert.match(buildScript, /\.runtime\/devnet\/build\/images\.json/);
   assert.match(buildScript, /mktemp/);
