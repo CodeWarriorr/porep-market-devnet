@@ -163,7 +163,8 @@ verify_manifest_platform() {
   local image_reference="${image_references[${image_name}]}"
   local expected_digest="${image_platform_digests[${image_name}]}"
 
-  docker buildx imagetools inspect "${image_reference}" --raw |
+  node "${DEVNET_ROOT}/scripts/run-with-timeout.mjs" --timeout-ms 120000 -- \
+    docker buildx imagetools inspect "${image_reference}" --raw |
     node "${DEVNET_ROOT}/scripts/verify-image-platform.mjs" \
       "${docker_architecture}" "${expected_digest}"
   printf 'manifest %s linux/%s=%s\n' \

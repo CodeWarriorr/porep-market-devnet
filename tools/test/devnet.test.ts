@@ -1270,6 +1270,7 @@ test("devnet build is bounded and records inspected immutable image evidence", a
   )?.[0];
   assert.ok(platformValidatorFunction);
   assert.doesNotMatch(platformValidatorFunction, /\bnode -e\b/);
+  assert.match(platformValidatorFunction, /--timeout-ms 120000/);
   assert.match(buildScript, /docker image inspect/);
   assert.match(buildScript, /\.runtime\/devnet\/build\/images\.json/);
   assert.match(buildScript, /mktemp/);
