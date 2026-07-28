@@ -3,6 +3,17 @@
 This is a local, test-only Filecoin/Curio machine. The generated keys and
 contracts are not production credentials or deployments.
 
+## Ownership and reproducibility
+
+Tracked orchestration lives in this repository. Exact detached source
+checkouts are managed under `.cache/sources/<name>/<commit>/`; chain state,
+test identities, deployment manifests, logs, and run evidence live under
+`.runtime/`. Neither path is committed.
+
+The default workflow does not use sibling checkouts, Git submodules, or global
+project dependencies. `versions.lock.yaml` defines the source, image, build
+tool, and network inputs.
+
 ## Lifecycle
 
 ```sh
@@ -26,6 +37,79 @@ contract-bootstrap state. `reset` keeps bounded logs and identity JSON under
 creates a new runtime generation, and preserves public deployment revisions,
 scenario runs, managed sources, images, the build manifest, and proof
 parameters.
+
+Before startup, `up` checks required services and locked images,
+loopback/unique ports, project-owned bind mounts, and the absence of fixed
+container identities. Logging options, restart policy, service ordering, and
+exact healthcheck command text are not treated as protocol contracts.
+
+`status` validates the Lotus and Curio versions, FEVM chain ID, network and
+actor versions, provider, sector size, Curio APIs, Market endpoint, database,
+and task readiness. It writes the latest snapshot to
+`.runtime/devnet/status/latest.json`.
+
+## Command bounds and diagnostics
+
+Lifecycle and test commands use `scripts/run-with-timeout.mjs` around work that
+can hang:
+
+- Node version check: 15 seconds
+- lock verification and typecheck/static checks: 60 seconds
+- `npm ci` and unit tests: 10 minutes
+- source verification: 5 minutes
+- source fetch: 20 minutes
+- complete image build: 90 minutes
+- one E2E scenario: 2 hours
+- one E2E matrix: 12 hours
+
+On timeout or external SIGINT/SIGTERM, the helper forwards the signal to the
+command process group, waits five seconds, and then sends SIGKILL if needed.
+Timeout exits use status 124; external SIGINT/SIGTERM exits use 130 or 143.
+Diagnostics identify the executable and retain a bounded stderr tail without
+printing environment variables or command arguments.
+
+BuildKit output is retained under `.runtime/devnet/logs/` on success or
+failure. Re-running `just build` safely reuses the same pinned tags and
+BuildKit cache.
+
+## Contract targets and deployments
+
+`test-contracts` and `deploy` use the clean PoRep Market revision from
+`versions.lock.yaml` unless an explicit absolute `source` checkout is passed.
+The checkout may be dirty. The harness creates an immutable snapshot before
+building, testing, or deploying it.
+
+Every deployment is append-only under
+`.runtime/deployments/<deployment-id>/revisions/`. Deploying again creates a
+new contract graph. `.runtime/deployments/active.json` selects the revision
+used by scenarios.
+
+A revision records its contract target, chain generation, flexible contract
+map, proxy and beacon implementations, and live runtime code hashes. Selection
+checks the chain ID, generation, genesis CID, provider, and deployed bytecode
+before exposing addresses or running scenarios.
+
+`just tooling-env` performs the same validation before printing public dotenv
+values for external Python tooling and the oracle. Signing keys remain in the
+ignored deployment directory.
+
+## Upgrade execution
+
+`upgrade` supports PoRep Market UUPS contracts and the Validator beacon through
+the selected checkout's upstream upgrade scripts. It checks that the deployment
+is current, the caller has upgrade authority, and every requested contract has
+a supported script.
+
+A per-deployment lock prevents concurrent upgrades. The prepared target, plan,
+and successful transaction receipts form a resumable journal because multiple
+EOA upgrades cannot be atomic. Rerunning an interrupted command resumes the
+same plan. A new deployment revision is published only when every live
+implementation and compiled runtime bytecode hash match the selected source.
+
+`test-upgrade` creates populated deal and payment state, performs the upgrade,
+checks proxy addresses and stored state, continues the old deal, and creates a
+new deal. Upgrade testing is intentionally excluded from ordinary scenario
+matrices.
 
 ## Endpoints
 
@@ -94,6 +178,17 @@ Use `docker compose run --rm --no-deps --entrypoint cast contracts-bootstrap
 - active sector fixture: `.runtime/fixtures/<generation>/active-sector.json`
 - scenario and matrix reports: `.runtime/runs/`
 
+## Safety boundaries
+
+`up`, `status`, `logs`, and `down` are non-destructive. `reset` is the only
+destructive public lifecycle command.
+
+Before a write, lifecycle scripts validate the exact repository, expected path
+type, canonical real path, ownership marker, and absence of symbolic links.
+Reset is limited to this Compose project and never removes shared proof
+parameters, source/build caches, images, or resources owned by another
+project.
+
 ## Measured arm64 run
 
 Measurements were taken on an Apple arm64 host with 10 CPUs, 24 GiB host RAM,
@@ -133,3 +228,14 @@ Contract deployment and upgrade Forge processes use a private loopback RPC
 adapter that represents Lotus null epochs as empty Ethereum-shaped blocks.
 This prevents Foundry's block lookup retries from stalling deployment while
 leaving Lotus, Curio, and scenario RPC traffic unchanged.
+
+## ZigZag boundary
+
+ZigZag is not a contract scenario or runtime toggle. It changes
+genesis, consensus, and proof integration and therefore belongs in a separate
+DevNet build lane or sibling harness.
+
+The scenario package and deployment revision format can be reused against that
+lane. This harness does not add a generic runtime profile or proof backend
+before a concrete ZigZag node image, genesis builder, and readiness contract
+exist.
