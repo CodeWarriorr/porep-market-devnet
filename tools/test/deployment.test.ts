@@ -10,6 +10,7 @@ import {
   assertDeploymentMatchesRuntime,
   formatDeploymentAddresses,
   formatDeploymentRevisionAddresses,
+  formatDeploymentRevisionToolingEnv,
   parseActiveDeployment,
   parseDeploymentManifest,
   parseDeploymentRevision,
@@ -192,6 +193,59 @@ test("deployment revision address output identifies the selected revision", () =
   assert.doesNotMatch(output, /implementation|codeHash|sourcePath/i);
 });
 
+test("deployment revision tooling environment contains exact public integration values", () => {
+  const value = validRevision() as Record<string, any>;
+  value.contracts.FilecoinPay = {
+    address: "0x6666666666666666666666666666666666666666",
+    runtimeCodeHash: hash,
+    kind: "direct",
+  };
+  value.contracts.SPRegistry = {
+    address: "0x7777777777777777777777777777777777777777",
+    runtimeCodeHash: hash,
+    kind: "direct",
+  };
+  value.contracts.ValidatorFactory = {
+    address: "0x8888888888888888888888888888888888888888",
+    runtimeCodeHash: hash,
+    kind: "direct",
+  };
+  value.contracts.MockUSDC = {
+    address: "0x9999999999999999999999999999999999999999",
+    runtimeCodeHash: hash,
+    kind: "direct",
+  };
+  value.contracts.SLIOracle = {
+    address: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    runtimeCodeHash: hash,
+    kind: "direct",
+  };
+  value.contracts.SLIScorer = {
+    address: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    runtimeCodeHash: hash,
+    kind: "direct",
+  };
+  const output = formatDeploymentRevisionToolingEnv(
+    parseDeploymentRevision(JSON.stringify(value)),
+  );
+  assert.equal(output, [
+    "RPC_URL=http://127.0.0.1:2234/rpc/v1",
+    "CHAIN_ID=31415926",
+    `POREP_MARKET=${address}`,
+    "FILECOIN_PAY=0x6666666666666666666666666666666666666666",
+    "SP_REGISTRY=0x7777777777777777777777777777777777777777",
+    "VALIDATOR_FACTORY=0x8888888888888888888888888888888888888888",
+    "USDC_TOKEN=0x9999999999999999999999999999999999999999",
+    `POREP_MARKET_CONTRACT_ADDRESS=${address}`,
+    "FILECOIN_PAY_CONTRACT_ADDRESS=0x6666666666666666666666666666666666666666",
+    "SP_REGISTRY_CONTRACT_ADDRESS=0x7777777777777777777777777777777777777777",
+    "SLI_ORACLE_CONTRACT_ADDRESS=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "SLI_SCORER_CONTRACT_ADDRESS=0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "",
+  ].join("\n"));
+  assert.doesNotMatch(output, /PRIVATE|SECRET|identity\./i);
+});
+
 test("deployment revision CLI inspects chain identity and prints addresses", () => {
   const input = JSON.stringify(validRevision());
   const inspect = spawnSync(process.execPath, [
@@ -332,7 +386,7 @@ test("harness contracts use the pinned compiler and bounded runtime-only build",
   assert.doesNotMatch(buildScript, /forge install|foundryup|curl /);
 });
 
-test("deployment scripts create append-only revisions and an explicit active selection", async () => {
+test("deployment scripts create append-only revisions and expose public integration values", async () => {
   const [justfile, deployScript, innerDeployScript, addressesScript, useScript] = await Promise.all([
     readFile(join(repositoryRoot, "justfile"), "utf8"),
     readFile(join(repositoryRoot, "scripts/devnet-deploy.sh"), "utf8"),
@@ -343,6 +397,7 @@ test("deployment scripts create append-only revisions and an explicit active sel
   assert.match(justfile, /deploy source='':\n\s+@bash scripts\/devnet-deploy\.sh/);
   assert.match(justfile, /use-deployment deployment revision='latest':/);
   assert.match(justfile, /addresses deployment='active':/);
+  assert.match(justfile, /tooling-env deployment='active':/);
   assert.match(deployScript, /devnet-status\.sh/);
   assert.match(deployScript, /contract-target prepare/);
   assert.match(deployScript, /\.runtime\/deployments\/.*revisions/);
@@ -363,7 +418,11 @@ test("deployment scripts create append-only revisions and an explicit active sel
   for (const name of contractNames) assert.match(innerDeployScript, new RegExp(name));
   assert.match(addressesScript, /chain list --epoch 0 --count 1/);
   assert.match(addressesScript, /deployment revision inspect/);
-  assert.match(addressesScript, /deployment revision addresses/);
+  assert.match(addressesScript, /output="\$\{2:-addresses\}"/);
+  assert.match(addressesScript, /addresses \|\| "\$\{output\}" == tooling-env/);
+  assert.match(addressesScript, /deployment revision inspect[\s\S]*>\/dev\/null/);
+  assert.match(addressesScript, /run --silent cli/);
+  assert.match(addressesScript, /deployment revision "\$\{output\}"/);
   assert.match(useScript, /active\.json/);
   assert.match(useScript, /deployment revision inspect/);
 });

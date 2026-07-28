@@ -258,6 +258,35 @@ export function formatDeploymentRevisionAddresses(revision: DeploymentRevision):
   return `${lines.map((line) => line.join("\t")).join("\n")}\n`;
 }
 
+export function formatDeploymentRevisionToolingEnv(revision: DeploymentRevision): string {
+  const required = [
+    "PoRepMarket",
+    "FilecoinPay",
+    "SPRegistry",
+    "ValidatorFactory",
+    "MockUSDC",
+    "SLIOracle",
+    "SLIScorer",
+  ];
+  requireDeploymentContracts(revision, required);
+  const address = (name: string): string => revision.contracts[name]!.address;
+  return [
+    "RPC_URL=http://127.0.0.1:2234/rpc/v1",
+    `CHAIN_ID=${revision.chain.chainId}`,
+    `POREP_MARKET=${address("PoRepMarket")}`,
+    `FILECOIN_PAY=${address("FilecoinPay")}`,
+    `SP_REGISTRY=${address("SPRegistry")}`,
+    `VALIDATOR_FACTORY=${address("ValidatorFactory")}`,
+    `USDC_TOKEN=${address("MockUSDC")}`,
+    `POREP_MARKET_CONTRACT_ADDRESS=${address("PoRepMarket")}`,
+    `FILECOIN_PAY_CONTRACT_ADDRESS=${address("FilecoinPay")}`,
+    `SP_REGISTRY_CONTRACT_ADDRESS=${address("SPRegistry")}`,
+    `SLI_ORACLE_CONTRACT_ADDRESS=${address("SLIOracle")}`,
+    `SLI_SCORER_CONTRACT_ADDRESS=${address("SLIScorer")}`,
+    "",
+  ].join("\n");
+}
+
 export function parseDeploymentManifest(source: string): DeploymentManifest {
   let value: unknown;
   try {

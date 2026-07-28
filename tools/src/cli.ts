@@ -13,6 +13,7 @@ import {
   assertDeploymentMatchesRuntime,
   formatDeploymentAddresses,
   formatDeploymentRevisionAddresses,
+  formatDeploymentRevisionToolingEnv,
   parseDeploymentManifest,
   parseDeploymentRevision,
 } from "./deployment.js";
@@ -78,6 +79,13 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
 
   if (matchesThree(args, "deployment", "revision", "addresses")) {
     console.log(formatDeploymentRevisionAddresses(
+      parseDeploymentRevision(await readStandardInput()),
+    ).trimEnd());
+    return;
+  }
+
+  if (matchesThree(args, "deployment", "revision", "tooling-env")) {
+    console.log(formatDeploymentRevisionToolingEnv(
       parseDeploymentRevision(await readStandardInput()),
     ).trimEnd());
     return;

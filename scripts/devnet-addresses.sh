@@ -4,6 +4,9 @@ source "$(cd -L "$(dirname "${BASH_SOURCE[0]}")" && pwd -L)/devnet-common.sh"
 
 bash "${DEVNET_ROOT}/scripts/devnet-status.sh" >/dev/null
 deployment_arg="${1:-active}"
+output="${2:-addresses}"
+[[ "${output}" == addresses || "${output}" == tooling-env ]] ||
+  devnet_die "deployment output format is invalid"
 active="${DEVNET_ROOT}/.runtime/deployments/active.json"
 if [[ "${deployment_arg}" == active ]]; then
   [[ -f "${active}" && ! -L "${active}" ]] || devnet_die "active deployment is missing; run just deploy"
@@ -27,7 +30,7 @@ genesis_cid="$(
     tr -d '\r\n'
 )"
 
-npm --prefix "${DEVNET_ROOT}/tools" run cli -- deployment revision inspect \
-  "${generation}" "${genesis_cid}" "${chain_id}" "${provider}" <"${manifest}"
+npm --prefix "${DEVNET_ROOT}/tools" run --silent cli -- deployment revision inspect \
+  "${generation}" "${genesis_cid}" "${chain_id}" "${provider}" <"${manifest}" >/dev/null
 devnet_verify_deployment_code "${manifest}"
-npm --prefix "${DEVNET_ROOT}/tools" run cli -- deployment revision addresses <"${manifest}"
+npm --prefix "${DEVNET_ROOT}/tools" run --silent cli -- deployment revision "${output}" <"${manifest}"

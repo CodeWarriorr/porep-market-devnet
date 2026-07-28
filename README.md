@@ -122,12 +122,17 @@ revision used by scenarios:
 ```sh
 just use-deployment deployment-... revision=latest
 just addresses deployment=active
+just tooling-env deployment=active
 ```
 
 Each revision records the contract target, chain generation, flexible
 contract map, proxy/beacon implementations, and live code hashes. Extra
 contracts are accepted. Private test keys remain only in the ignored
 deployment directory.
+
+`just tooling-env` validates the active chain identity and deployed bytecode,
+then prints public dotenv values used by the Python tooling and oracle. It does
+not print signing keys or configure the oracle database, roles, or scheduler.
 
 ## Scenarios and repeated runs
 

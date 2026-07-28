@@ -33,6 +33,9 @@ test-upgrade deployment contracts source='':
 addresses deployment='active':
     @bash scripts/devnet-addresses.sh '{{deployment}}'
 
+tooling-env deployment='active':
+    @bash scripts/devnet-addresses.sh '{{deployment}}' tooling-env
+
 test-unit:
     @node scripts/run-with-timeout.mjs --timeout-ms 60000 -- npm --prefix tools run typecheck
     @node scripts/run-with-timeout.mjs --timeout-ms 600000 -- npm --prefix tools test
