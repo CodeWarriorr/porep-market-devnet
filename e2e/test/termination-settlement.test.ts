@@ -1,20 +1,16 @@
-import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  assertZeroPaymentDidNotAdvance,
-} from "../src/scenarios/terminationSettlement.js";
+import { assertExactSettlementAccounting } from "../src/flows/settlement.js";
 
-test("termination settlement oracle rejects zero-paid cursor advancement", () => {
-  assert.doesNotThrow(() => assertZeroPaymentDidNotAdvance({
-    beforeCursor: 100n,
-    afterCursor: 100n,
-    beforePayeeFunds: 20n,
-    afterPayeeFunds: 20n,
-  }));
-  assert.throws(() => assertZeroPaymentDidNotAdvance({
-    beforeCursor: 100n,
-    afterCursor: 101n,
-    beforePayeeFunds: 20n,
-    afterPayeeFunds: 20n,
-  }), /consumed the rail cursor/);
+test("termination zero-payment outcome has no observable transfer", () => {
+  assertExactSettlementAccounting({
+    payerFundsDelta: 0n,
+    payeeFundsDelta: 0n,
+    totalSettledAmount: 0n,
+    totalNetPayeeAmount: 0n,
+    operatorCommission: 0n,
+    networkFee: 0n,
+    expectedGross: 0n,
+    expectedNetworkFee: 0n,
+    expectedNetPayee: 0n,
+  });
 });

@@ -30,6 +30,8 @@ export type Rail = {
   paymentRate: bigint;
   settledUpTo: bigint;
   endEpoch: bigint;
+  commissionRateBps: bigint;
+  serviceFeeRecipient: string;
 };
 
 export type Account = {
@@ -153,7 +155,7 @@ export class ContractViews {
   async dealService(dealId: bigint): Promise<{
     startEpoch: bigint;
     endEpoch: bigint;
-    activationEpoch: bigint;
+    earlyTerminationEpoch: bigint;
     minSettlementEpochs: bigint;
     lastSettledEpoch: bigint;
   }> {
@@ -161,7 +163,7 @@ export class ContractViews {
     return {
       startEpoch: firstUint(value[0]),
       endEpoch: firstUint(value[1]),
-      activationEpoch: firstUint(value[2]),
+      earlyTerminationEpoch: firstUint(value[2]),
       minSettlementEpochs: firstUint(value[3]),
       lastSettledEpoch: firstUint(value[4])
     };
@@ -185,7 +187,9 @@ export class ContractViews {
       validator: String(value[4]),
       paymentRate: firstUint(value[5]),
       settledUpTo: firstUint(value[8]),
-      endEpoch: firstUint(value[9])
+      endEpoch: firstUint(value[9]),
+      commissionRateBps: firstUint(value[10]),
+      serviceFeeRecipient: String(value[11])
     };
   }
 

@@ -78,6 +78,7 @@ done < <(
     ':(exclude,top).cache/**' \
     ':(exclude,top).runtime/**' \
     ':(exclude,glob)**/node_modules/**' \
+    ':!AGENTS.md' \
     ':!docs/goals/**' \
     ':!docs/superpowers/plans/2026-07-24-phase-1-bootstrap-tooling.md' \
     ':!.superpowers/sdd/task-1-brief.md' \

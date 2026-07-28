@@ -26,20 +26,27 @@ import {
 } from "../flows/settlement.js";
 
 export async function runFullAvailableFlow(context: ScenarioContext): Promise<void> {
-  const offer = await runStep(context, "register provider and offer", () => registerDevnetProviderAndOffer(context));
-  const deal = await runStep(context, "propose accepted deal", () => proposeDealAndAssertAccepted(context, offer));
-  const validator = await runStep(context, "deploy validator", () => createValidatorForDeal(context, deal));
-  await runStep(context, "deposit and approve validator operator", () => depositAndApproveValidatorOperator(context, deal, validator));
-  const rail = await runStep(context, "create prepared rail", () => createPreparedRailAndAssertRate(context, deal, validator));
-  const piece = await runStep(context, "generate piece", () => generatePiece(context));
-  const allocation = await runStep(context, "submit DataCap allocation", () => submitDataCapAllocation(context, deal, piece));
-  await runStep(context, "import piece and wait for provider claim", () => importPieceAndWaitForProviderClaim(context, allocation));
-  await runStep(context, "finish DataCap posting", () => finishDataCapPostingAndAssertAllocated(context, deal));
-  await runStep(context, "submit evidence batch", () => submitEvidenceBatchAndAssertClaimCoverage(context, deal));
-  const active = await runStep(context, "activate evidence", () => activateEvidenceAndAssertDealActive(context, deal, rail));
-  await runStep(context, "set SLI attestation", () => setSliAttestationForDeal(context, deal));
-  await runStep(context, "configure settlement cadence", () => configureSettlementCadenceForDevnet(context, deal));
-  await runStep(context, "wait for settlement window", () => waitForSettlementWindow(context, deal, rail));
-  await runStep(context, "refresh evidence status", () => refreshEvidenceStatusAndAssertActive(context, active));
-  await runStep(context, "settle rail", () => settleRailAndAssertProviderPayout(context, deal, active, rail));
+  const previousPrice = context.config.env.V2_PRICE_PER_32GIB_MONTH;
+  context.config.env.V2_PRICE_PER_32GIB_MONTH = "86400000001";
+  try {
+    const offer = await runStep(context, "register provider and offer", () => registerDevnetProviderAndOffer(context));
+    const deal = await runStep(context, "propose accepted deal", () => proposeDealAndAssertAccepted(context, offer));
+    const validator = await runStep(context, "deploy validator", () => createValidatorForDeal(context, deal));
+    await runStep(context, "deposit and approve validator operator", () => depositAndApproveValidatorOperator(context, deal, validator));
+    const rail = await runStep(context, "create prepared rail", () => createPreparedRailAndAssertRate(context, deal, validator));
+    const piece = await runStep(context, "generate piece", () => generatePiece(context));
+    const allocation = await runStep(context, "submit DataCap allocation", () => submitDataCapAllocation(context, deal, piece));
+    await runStep(context, "import piece and wait for provider claim", () => importPieceAndWaitForProviderClaim(context, allocation));
+    await runStep(context, "finish DataCap posting", () => finishDataCapPostingAndAssertAllocated(context, deal));
+    await runStep(context, "submit evidence batch", () => submitEvidenceBatchAndAssertClaimCoverage(context, deal));
+    const active = await runStep(context, "activate evidence", () => activateEvidenceAndAssertDealActive(context, deal, rail));
+    await runStep(context, "set SLI attestation", () => setSliAttestationForDeal(context, deal));
+    await runStep(context, "configure settlement cadence", () => configureSettlementCadenceForDevnet(context, deal));
+    await runStep(context, "wait for settlement window", () => waitForSettlementWindow(context, deal, rail));
+    await runStep(context, "refresh evidence status", () => refreshEvidenceStatusAndAssertActive(context, active));
+    await runStep(context, "settle rail", () => settleRailAndAssertProviderPayout(context, deal, active, rail));
+  } finally {
+    if (previousPrice === undefined) delete context.config.env.V2_PRICE_PER_32GIB_MONTH;
+    else context.config.env.V2_PRICE_PER_32GIB_MONTH = previousPrice;
+  }
 }

@@ -9,11 +9,14 @@ import {
 
 test("scenario registry exposes every supported CLI scenario", () => {
   assert.deepEqual(scenarioNames, [
+    "accepted-deal-expiration",
+    "accepted-deal-rejection",
     "access-control-guards",
     "activation-lifecycle-guards",
     "actor-token-guards",
     "basic-activation",
     "curio-restart-replay",
+  "deal-termination",
     "direct-onboarding-notification",
     "direct-onboarding-notification-failure",
     "evidence-authority-guards",
@@ -54,6 +57,7 @@ test("named suites resolve to registered scenarios", () => {
     "activation-lifecycle-guards",
     "basic-activation",
     "curio-restart-replay",
+  "deal-termination",
     "direct-onboarding-notification",
     "direct-onboarding-notification-failure",
     "evidence-authority-guards",
@@ -67,6 +71,8 @@ test("named suites resolve to registered scenarios", () => {
     "termination-settlement",
   ]);
   assert.deepEqual(resolveSuite("contract"), [
+    "accepted-deal-expiration",
+    "accepted-deal-rejection",
     "access-control-guards",
     "actor-token-guards",
     "evidence-no-claim-activation-guard",

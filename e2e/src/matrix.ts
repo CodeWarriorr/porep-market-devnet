@@ -9,16 +9,19 @@ import {
 import { join } from "node:path";
 import { loadConfig } from "./config.js";
 import {
+  collectSkippedCapabilities,
+  summarizeMatrixResults,
+  type MatrixReportResult,
+} from "./matrix-report.js";
+import {
   resolveScenario,
   resolveSuite,
 } from "./scenarios/registry.js";
 
-type MatrixResult = {
-  scenario: string;
+type MatrixResult = MatrixReportResult & {
   startedAt: string;
   completedAt: string;
   durationMs: number;
-  result: "passed" | "failed";
   exitCode: number;
   summaryPath: string | null;
   logPath: string;
@@ -47,9 +50,22 @@ for (const name of selectedScenarios) {
 }
 
 const failed = results.filter((result) => result.result === "failed");
+const summary = summarizeMatrixResults(results);
 writeReport(new Date().toISOString());
 console.log(`\nMatrix report: ${reportPath}`);
-console.log(`Matrix result: ${results.length - failed.length}/${results.length} passed`);
+console.log(
+  `Behavior scenarios: ${summary.behavior.passed}/${summary.behavior.total} passed`,
+);
+console.log(
+  `Infrastructure scenarios: ${summary.infrastructure.passed}/${summary.infrastructure.total} passed`,
+);
+console.log(`Matrix result (all scenarios): ${results.length - failed.length}/${results.length} passed`);
+if (summary.skippedCapabilities.length > 0) {
+  console.log("Skipped capabilities:");
+  for (const capability of summary.skippedCapabilities) {
+    console.log(`  ${capability.scenario} ${capability.key}: ${capability.value}`);
+  }
+}
 
 if (failed.length > 0) {
   process.exitCode = 1;
@@ -94,6 +110,7 @@ async function runScenario(name: string, index: number): Promise<MatrixResult> {
       }, null, 2)}\n`,
     );
   }
+  const summaryState = readSummaryState(summaryPath);
 
   return {
     scenario: name,
@@ -104,7 +121,9 @@ async function runScenario(name: string, index: number): Promise<MatrixResult> {
     exitCode,
     summaryPath,
     logPath,
-    stateIds: readStateIds(summaryPath),
+    stateIds: readStateIds(summaryState),
+    infrastructure: resolveScenario(name).tags.includes("infra"),
+    skippedCapabilities: collectSkippedCapabilities(summaryState),
   };
 }
 
@@ -167,20 +186,25 @@ function runChild(
   });
 }
 
-function readStateIds(summaryPath: string | null): Record<string, string> {
+function readSummaryState(summaryPath: string | null): Record<string, string> {
   if (!summaryPath || !existsSync(summaryPath)) return {};
 
   const summary = JSON.parse(readFileSync(summaryPath, "utf8")) as {
     state?: Record<string, string>;
   };
+  return summary.state ?? {};
+}
+
+function readStateIds(state: Record<string, string>): Record<string, string> {
   return Object.fromEntries(
-    Object.entries(summary.state ?? {}).filter(([key]) =>
+    Object.entries(state).filter(([key]) =>
       /(^PROVIDER$|_ID$|_IDS_CSV$|^SECTOR_NUMBER$)/.test(key),
     ),
   );
 }
 
 function writeReport(completedAt?: string): void {
+  const summary = summarizeMatrixResults(results);
   writeFileSync(
     reportPath,
     `${JSON.stringify({
@@ -195,6 +219,9 @@ function writeReport(completedAt?: string): void {
           ? "passed"
           : "failed"
         : "running",
+      behavior: summary.behavior,
+      infrastructure: summary.infrastructure,
+      skippedCapabilities: summary.skippedCapabilities,
       scenarios: results,
     }, null, 2)}\n`,
   );

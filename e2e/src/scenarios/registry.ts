@@ -18,10 +18,16 @@ import { runSectorStatusActive, runSectorStatusNegative } from "./sectorStatus.j
 import { runUpgradeContinuity } from "./upgradeContinuity.js";
 import { runTerminationSettlement } from "./terminationSettlement.js";
 import { runCurioRestartReplay } from "./curioRestartReplay.js";
+import {
+  runAcceptedDealExpiration,
+  runAcceptedDealRejection,
+} from "./acceptedDealExits.js";
+import { runDealTermination } from "./dealTermination.js";
 
 export type ScenarioTag =
   | "contract"
   | "curio"
+  | "infra"
   | "sealing"
   | "upgrade"
   | "security";
@@ -74,6 +80,8 @@ function sealing(
 
 export const scenarioDefinitions: Record<string, ScenarioDefinition> = {
   "access-control-guards": contract(runAccessControlGuards, ["contract", "security"]),
+  "accepted-deal-expiration": contract(runAcceptedDealExpiration, ["contract", "security"]),
+  "accepted-deal-rejection": contract(runAcceptedDealRejection, ["contract", "security"]),
   "activation-lifecycle-guards": sealing(runActivationLifecycleGuards, ["curio", "sealing", "security"]),
   "actor-token-guards": contract(runActorTokenGuards, ["contract", "security"]),
   "basic-activation": sealing(runBasicActivationFlow),
@@ -95,6 +103,7 @@ export const scenarioDefinitions: Record<string, ScenarioDefinition> = {
     timeoutMs: CURIO_TIMEOUT_MS,
     requiredContracts: [...MARKET_CONTRACTS, "NotificationReceiver"],
   },
+  "deal-termination": sealing(runDealTermination, ["curio", "sealing", "security"]),
   "evidence-authority-guards": sealing(runEvidenceAuthorityGuards, ["curio", "sealing", "security"]),
   "evidence-no-claim-activation-guard": contract(runEvidenceNoClaimActivationGuard, ["contract", "security"]),
   "full-available": sealing(runFullAvailableFlow),
@@ -102,7 +111,7 @@ export const scenarioDefinitions: Record<string, ScenarioDefinition> = {
   "negative-activation": contract(runNegativeActivationBeforeEvidence, ["contract", "security"]),
   "prepare-devnet": {
     run: verifyCurioDevnet,
-    tags: ["curio"],
+    tags: ["curio", "infra"],
     timeoutMs: CONTRACT_TIMEOUT_MS,
     requiredContracts: [],
   },

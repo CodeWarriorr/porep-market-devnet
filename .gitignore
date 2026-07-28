@@ -1,5 +1,6 @@
 .cache/
 .runtime/
+.pi-subagents/
 node_modules/
 tools/node_modules/
 tools/dist/

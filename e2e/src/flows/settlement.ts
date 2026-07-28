@@ -1,4 +1,5 @@
 import { assertEqual } from "../assertions.js";
+import { billed32GiBUnits, netPayeeAmount, networkFee, settlementAmount } from "../expected.js";
 import type { ScenarioContext } from "../runtime.js";
 import { envBigInt } from "../runtime.js";
 import { artifactAbis } from "../contracts/abi.js";
@@ -28,9 +29,32 @@ export type SettlementAccounting = {
   networkFee: bigint;
 };
 
+export type ExactSettlementAccounting = SettlementAccounting & {
+  expectedGross: bigint;
+  expectedNetworkFee: bigint;
+  expectedNetPayee: bigint;
+};
+
+export type SettlementOutcomeExpectation = {
+  settlementAmount: bigint;
+  settleUpto: bigint;
+  note: string;
+};
+
+type ExactSettlement = {
+  txHash: string;
+  paidAmount: bigint;
+  targetEpoch: bigint;
+  fromEpoch: bigint;
+  expectedGross: bigint;
+  payerBefore: Account;
+  payerAfter: Account;
+  settlement: RailSettledEvent;
+};
+
 export async function setSliAttestationForDeal(
   context: ScenarioContext,
-  accepted: AcceptedDeal
+  accepted: Pick<AcceptedDeal, "dealId">
 ): Promise<{ txHash: string; lastUpdate: bigint; slis: DealSlis }> {
   requireDevnet(context);
   const evm = new Evm(context);
@@ -78,7 +102,7 @@ export async function setSliAttestationForDeal(
 
 export async function configureSettlementCadenceForDevnet(
   context: ScenarioContext,
-  accepted: AcceptedDeal
+  accepted: Pick<AcceptedDeal, "dealId">
 ): Promise<{ txHash: string; minEpochs: bigint }> {
   requireDevnet(context);
   const evm = new Evm(context);
@@ -252,40 +276,96 @@ export async function settleRailAndAssertProviderPayout(
   accepted: AcceptedDeal,
   active: ActiveDeal,
   rail: PreparedRail
-): Promise<{ txHash: string; paidAmount: bigint; targetEpoch: bigint }> {
+): Promise<{ txHash: string; paidAmount: bigint; targetEpoch: bigint; fromEpoch: bigint; expectedGross: bigint }> {
+  const result = await settleRailAndAssertExact(context, accepted, active, rail);
+
+  context.state.set("SETTLEMENT_TX", result.txHash);
+  context.state.set("PAID_AMOUNT", result.paidAmount);
+  context.state.set("SETTLED_TARGET_EPOCH", result.targetEpoch);
+  return result;
+}
+
+export async function settleRailAtEpochAndAssertOutcome(
+  context: ScenarioContext,
+  accepted: Pick<AcceptedDeal, "dealId">,
+  rail: Pick<PreparedRail, "railId">,
+  targetEpoch: bigint,
+  expectedOutcome: SettlementOutcomeExpectation,
+  expectedMarketLastSettledEpoch: bigint,
+): Promise<{ txHash: string; paidAmount: bigint; fromEpoch: bigint }> {
+  requireDevnet(context);
+  const evm = new Evm(context);
+  const view = contracts(context);
+  const beforeRail = await view.rail(rail.railId);
+  assertEqual(beforeRail.commissionRateBps, 0n, "validator rail commission rate bps");
+
+  const expectedNetworkFee = networkFee(expectedOutcome.settlementAmount);
+  const expectedNetPayee = netPayeeAmount(expectedOutcome.settlementAmount);
+  await assertSimulatedSettlementOutcome(context, evm, rail.railId, targetEpoch, expectedOutcome);
+  const payerBefore = await view.account(beforeRail.from);
+  const payeeBefore = await view.account(beforeRail.to);
+  const txHash = await evm.send(context.config.addresses.filecoinPay, "settleRail(uint256,uint256)", [rail.railId, targetEpoch]);
+  const settlement = railSettledEventFromReceipt(context, evm.receipt(txHash), rail.railId);
+  const afterRail = await view.rail(rail.railId);
+  const serviceAfter = await view.dealService(accepted.dealId);
+  const payerAfter = await view.account(beforeRail.from);
+  const payeeAfter = await view.account(beforeRail.to);
+  assertEqual(afterRail.settledUpTo, expectedOutcome.settleUpto, "terminal rail settledUpTo");
+  assertEqual(settlement.settledUpTo, expectedOutcome.settleUpto, "terminal RailSettled settledUpTo");
+  assertEqual(serviceAfter.lastSettledEpoch, expectedMarketLastSettledEpoch, "terminal deal lastSettledEpoch");
+  assertExactSettlementAccounting({
+    payerFundsDelta: payerBefore.funds - payerAfter.funds,
+    payeeFundsDelta: payeeAfter.funds - payeeBefore.funds,
+    totalSettledAmount: settlement.totalSettledAmount,
+    totalNetPayeeAmount: settlement.totalNetPayeeAmount,
+    operatorCommission: settlement.operatorCommission,
+    networkFee: settlement.networkFee,
+    expectedGross: expectedOutcome.settlementAmount,
+    expectedNetworkFee,
+    expectedNetPayee,
+  });
+  return { txHash, paidAmount: expectedNetPayee, fromEpoch: beforeRail.settledUpTo };
+}
+
+async function settleRailAndAssertExact(
+  context: ScenarioContext,
+  accepted: AcceptedDeal,
+  active: ActiveDeal,
+  rail: PreparedRail
+): Promise<ExactSettlement> {
   requireDevnet(context);
   const evm = new Evm(context);
   const view = contracts(context);
   const service = await view.dealService(accepted.dealId);
-  const currentRail = await view.rail(rail.railId);
+  const payment = await view.dealPayment(accepted.dealId);
+  const beforeRail = await view.rail(rail.railId);
   const status = await view.evidenceStatus(accepted.dealId);
   const refreshGrace = await view.evidenceRefreshGraceEpochs();
   const currentEpoch = evm.blockNumber();
-  const earliestSettlement = currentRail.settledUpTo + service.minSettlementEpochs;
+  const earliestSettlement = beforeRail.settledUpTo + service.minSettlementEpochs;
   const maxFreshTarget = status.lastEvidenceRefreshEpoch + refreshGrace;
   const targetEpoch = currentEpoch > maxFreshTarget ? maxFreshTarget : currentEpoch;
+  const expectedGross = settlementAmount(
+    payment.pricePer32GiBPerMonth,
+    billed32GiBUnits(active.committedBytes),
+    service.startEpoch,
+    beforeRail.settledUpTo,
+    targetEpoch,
+  );
+  const expectedNetworkFee = networkFee(expectedGross);
+  const expectedNetPayee = netPayeeAmount(expectedGross);
+  const payerBefore = await view.account(beforeRail.from);
+  const payeeBefore = await view.account(beforeRail.to);
 
-  console.log("=== Settle V2 rail ===");
+  console.log("=== Settle V2 rail with exact accounting ===");
   console.log(`  Deal: ${accepted.dealId}`);
   console.log(`  Rail: ${rail.railId}`);
-  console.log(`  Service epochs: ${service.startEpoch} -> ${service.endEpoch}`);
-  console.log(`  Last deal-settled epoch: ${service.lastSettledEpoch}`);
-  console.log(`  Rail settled up to: ${currentRail.settledUpTo}`);
-  console.log(`  Min settlement epochs: ${service.minSettlementEpochs}`);
-  console.log(`  Earliest settlement epoch: ${earliestSettlement}`);
-  console.log(`  Current epoch: ${currentEpoch}`);
   console.log(`  Target epoch: ${targetEpoch}`);
-  console.log(`  Evidence last refresh epoch: ${status.lastEvidenceRefreshEpoch}`);
-  console.log(`  Evidence freshness grace: ${refreshGrace}`);
-  console.log(`  Committed bytes: ${active.committedBytes}`);
-  console.log(`  Active evidence bytes: ${status.activeCoveredBytes}`);
-  console.log(`  Evidence result: ${status.result}`);
-  console.log(`  Checked claims: ${status.checkedClaims} / ${status.totalClaims}`);
-  console.log(`  Rail payment rate: ${active.paymentRate}`);
-
+  console.log(`  Expected gross/net/fee: ${expectedGross}/${expectedNetPayee}/${expectedNetworkFee}`);
   assertEqual(status.activeCoveredBytes, active.committedBytes, "settlement activeCoveredBytes");
   assertEqual(status.result, 40n, "settlement evidence result ACTIVE");
   assertEqual(status.checkedClaims, status.totalClaims, "settlement checked claims");
+  assertEqual(beforeRail.commissionRateBps, 0n, "validator rail commission rate bps");
   if (targetEpoch < earliestSettlement) {
     throw new Error(`settlement blocked: target epoch ${targetEpoch} is before earliest settlement epoch ${earliestSettlement}`);
   }
@@ -293,19 +373,62 @@ export async function settleRailAndAssertProviderPayout(
     throw new Error(`settlement blocked: evidence refresh is too old for target epoch ${targetEpoch}`);
   }
 
-  const before = await view.accountFunds(currentRail.to);
+  await assertSimulatedSettlementOutcome(context, evm, rail.railId, targetEpoch, {
+    settlementAmount: expectedGross,
+    settleUpto: targetEpoch,
+    note: "payment validated successfully",
+  });
   const txHash = await evm.send(context.config.addresses.filecoinPay, "settleRail(uint256,uint256)", [rail.railId, targetEpoch]);
-  const after = await view.accountFunds(currentRail.to);
-  const paidAmount = after - before;
-  if (paidAmount <= 0n) throw new Error(`settlement paid amount expected > 0, got ${paidAmount}`);
+  const settlement = railSettledEventFromReceipt(context, evm.receipt(txHash), rail.railId);
+  const afterRail = await view.rail(rail.railId);
+  const serviceAfter = await view.dealService(accepted.dealId);
+  const payerAfter = await view.account(beforeRail.from);
+  const payeeAfter = await view.account(beforeRail.to);
+  assertEqual(afterRail.settledUpTo, targetEpoch, "rail settledUpTo");
+  assertEqual(settlement.settledUpTo, targetEpoch, "RailSettled settledUpTo");
+  assertEqual(serviceAfter.lastSettledEpoch, targetEpoch, "deal lastSettledEpoch");
+  assertExactSettlementAccounting({
+    payerFundsDelta: payerBefore.funds - payerAfter.funds,
+    payeeFundsDelta: payeeAfter.funds - payeeBefore.funds,
+    totalSettledAmount: settlement.totalSettledAmount,
+    totalNetPayeeAmount: settlement.totalNetPayeeAmount,
+    operatorCommission: settlement.operatorCommission,
+    networkFee: settlement.networkFee,
+    expectedGross,
+    expectedNetworkFee,
+    expectedNetPayee,
+  });
+  return {
+    txHash,
+    paidAmount: expectedNetPayee,
+    targetEpoch,
+    fromEpoch: beforeRail.settledUpTo,
+    expectedGross,
+    payerBefore,
+    payerAfter,
+    settlement,
+  };
+}
 
-  context.state.set("SETTLEMENT_TX", txHash);
-  context.state.set("PAID_AMOUNT", paidAmount);
-  context.state.set("SETTLED_TARGET_EPOCH", targetEpoch);
-  console.log(`  TX: ${txHash}`);
-  console.log(`  Paid amount: ${paidAmount}`);
-  console.log("=== V2 rail settled ===");
-  return { txHash, paidAmount, targetEpoch };
+async function assertSimulatedSettlementOutcome(
+  context: ScenarioContext,
+  evm: Evm,
+  railId: bigint,
+  targetEpoch: bigint,
+  expected: SettlementOutcomeExpectation,
+): Promise<void> {
+  const expectedNetworkFee = networkFee(expected.settlementAmount);
+  const expectedNetPayee = netPayeeAmount(expected.settlementAmount);
+  const simulated = await evm.contract(
+    context.config.addresses.filecoinPay,
+    artifactAbis(context).filecoinPay,
+  ).settleRail.staticCall(railId, targetEpoch, { from: evm.signerAddress }) as unknown[];
+  assertEqual(firstUint(simulated[0]), expected.settlementAmount, "simulated settlement gross amount");
+  assertEqual(firstUint(simulated[1]), expectedNetPayee, "simulated settlement net payee amount");
+  assertEqual(firstUint(simulated[2]), 0n, "simulated settlement operator commission");
+  assertEqual(firstUint(simulated[3]), expectedNetworkFee, "simulated settlement network fee");
+  assertEqual(firstUint(simulated[4]), expected.settleUpto, "simulated settlement final cursor");
+  assertEqual(String(simulated[5]), expected.note, "simulated settlement note");
 }
 
 export async function expectSettlementBlockedWithoutPayout(
@@ -338,6 +461,7 @@ export async function expectSettlementBlockedWithoutPayout(
     assertEqual(error.args[0], dealId, "NoAttestation dealId");
   } else {
     assertEqual(error.args[0], rail.railId, "NoProgressInSettlement railId");
+    assertEqual(error.args[1], beforeRail.settledUpTo + 1n, "NoProgressInSettlement expected settled epoch");
     assertEqual(error.args[2], beforeRail.settledUpTo, "NoProgressInSettlement actual settled epoch");
   }
   console.log(`  Settlement failed with ${error.name}`);
@@ -389,85 +513,43 @@ export async function settleRailAndAssertOnlySelectedRailAdvanced(
   otherRail: PreparedRail
 ): Promise<{ txHash: string; paidAmount: bigint; targetEpoch: bigint; payerBefore: Account; payerAfter: Account; settlement: RailSettledEvent }> {
   requireDevnet(context);
-  const evm = new Evm(context);
   const view = contracts(context);
-  const service = await view.dealService(accepted.dealId);
-  const beforeRail = await view.rail(rail.railId);
   const beforeOtherRail = await view.rail(otherRail.railId);
-  const status = await view.evidenceStatus(accepted.dealId);
-  const refreshGrace = await view.evidenceRefreshGraceEpochs();
-  const currentEpoch = evm.blockNumber();
-  const earliestSettlement = beforeRail.settledUpTo + service.minSettlementEpochs;
-  const maxFreshTarget = status.lastEvidenceRefreshEpoch + refreshGrace;
-  const targetEpoch = currentEpoch > maxFreshTarget ? maxFreshTarget : currentEpoch;
-  const payerBefore = await view.account(beforeRail.from);
-  const payeeBefore = await view.account(beforeRail.to);
   const otherPayeeBefore = await view.account(beforeOtherRail.to);
 
   console.log("=== Settle selected V2 rail and assert shared-account isolation ===");
   console.log(`  Deal: ${accepted.dealId}`);
   console.log(`  Rail: ${rail.railId}`);
   console.log(`  Other rail: ${otherRail.railId}`);
-  console.log(`  Payer account before: funds=${payerBefore.funds}, lockupCurrent=${payerBefore.lockupCurrent}, lockupRate=${payerBefore.lockupRate}, lockupLastSettledAt=${payerBefore.lockupLastSettledAt}`);
-  console.log(`  Target epoch: ${targetEpoch}`);
-
-  assertEqual(status.activeCoveredBytes, active.committedBytes, "settlement activeCoveredBytes");
-  assertEqual(status.result, 40n, "settlement evidence result ACTIVE");
-  assertEqual(status.checkedClaims, status.totalClaims, "settlement checked claims");
-  if (targetEpoch < earliestSettlement) {
-    throw new Error(`settlement blocked: target epoch ${targetEpoch} is before earliest settlement epoch ${earliestSettlement}`);
-  }
-
-  const txHash = await evm.send(context.config.addresses.filecoinPay, "settleRail(uint256,uint256)", [rail.railId, targetEpoch]);
-  const settlement = railSettledEventFromReceipt(context, evm.receipt(txHash), rail.railId);
+  const result = await settleRailAndAssertExact(context, accepted, active, rail);
   const afterRail = await view.rail(rail.railId);
   const afterOtherRail = await view.rail(otherRail.railId);
-  const payerAfter = await view.account(beforeRail.from);
-  const payeeAfter = await view.account(beforeRail.to);
   const otherPayeeAfter = await view.account(beforeOtherRail.to);
-  const paidAmount = settlement.totalNetPayeeAmount;
-  const payerFundsDelta = payerBefore.funds - payerAfter.funds;
-  const payeeFundsDelta = payeeAfter.funds - payeeBefore.funds;
-
-  if (paidAmount <= 0n) throw new Error(`settlement paid amount expected > 0, got ${paidAmount}`);
-  assertEqual(afterRail.settledUpTo, targetEpoch, "selected rail settledUpTo");
-  assertEqual(settlement.settledUpTo, afterRail.settledUpTo, "RailSettled settledUpTo");
+  assertEqual(afterRail.settledUpTo, result.targetEpoch, "selected rail settledUpTo");
+  assertEqual(result.settlement.settledUpTo, afterRail.settledUpTo, "RailSettled settledUpTo");
   assertEqual(afterOtherRail.settledUpTo, beforeOtherRail.settledUpTo, "other rail settledUpTo while selected rail settled");
   assertEqual(otherPayeeAfter.funds, otherPayeeBefore.funds, "other payee funds while selected rail settled");
-  assertSettlementAccountingMatchesEvent({
-    payerFundsDelta,
-    payeeFundsDelta,
-    totalSettledAmount: settlement.totalSettledAmount,
-    totalNetPayeeAmount: settlement.totalNetPayeeAmount,
-    operatorCommission: settlement.operatorCommission,
-    networkFee: settlement.networkFee
-  });
-  assertEqual(payerAfter.lockupRate, payerBefore.lockupRate, "payer lockup rate after selected rail settlement");
-  if (payerAfter.lockupLastSettledAt < payerBefore.lockupLastSettledAt) {
-    throw new Error(`payer lockupLastSettledAt decreased from ${payerBefore.lockupLastSettledAt} to ${payerAfter.lockupLastSettledAt}`);
+  assertEqual(result.payerAfter.lockupRate, result.payerBefore.lockupRate, "payer lockup rate after selected rail settlement");
+  if (result.payerAfter.lockupLastSettledAt < result.payerBefore.lockupLastSettledAt) {
+    throw new Error(`payer lockupLastSettledAt decreased from ${result.payerBefore.lockupLastSettledAt} to ${result.payerAfter.lockupLastSettledAt}`);
   }
-  if (payerAfter.funds < payerAfter.lockupCurrent) {
-    throw new Error(`payer account underfunded after settlement: funds=${payerAfter.funds}, lockupCurrent=${payerAfter.lockupCurrent}`);
+  if (result.payerAfter.funds < result.payerAfter.lockupCurrent) {
+    throw new Error(`payer account underfunded after settlement: funds=${result.payerAfter.funds}, lockupCurrent=${result.payerAfter.lockupCurrent}`);
   }
 
-  context.state.set(`SETTLEMENT_TX_RAIL_${rail.railId}`, txHash);
-  context.state.set(`PAID_AMOUNT_RAIL_${rail.railId}`, paidAmount);
-  context.state.set(`GROSS_SETTLED_AMOUNT_RAIL_${rail.railId}`, settlement.totalSettledAmount);
-  context.state.set(`NETWORK_FEE_RAIL_${rail.railId}`, settlement.networkFee);
-  context.state.set(`OPERATOR_COMMISSION_RAIL_${rail.railId}`, settlement.operatorCommission);
-  context.state.set(`SETTLED_TARGET_EPOCH_RAIL_${rail.railId}`, targetEpoch);
-  context.state.set(`PAYER_FUNDS_AFTER_RAIL_${rail.railId}`, payerAfter.funds);
-  context.state.set(`PAYER_LOCKUP_CURRENT_AFTER_RAIL_${rail.railId}`, payerAfter.lockupCurrent);
-  context.state.set(`PAYER_LOCKUP_RATE_AFTER_RAIL_${rail.railId}`, payerAfter.lockupRate);
-  context.state.set(`PAYER_LOCKUP_LAST_SETTLED_AFTER_RAIL_${rail.railId}`, payerAfter.lockupLastSettledAt);
-  console.log(`  TX: ${txHash}`);
-  console.log(`  Gross settled amount: ${settlement.totalSettledAmount}`);
-  console.log(`  Net payee amount: ${paidAmount}`);
-  console.log(`  Network fee: ${settlement.networkFee}`);
-  console.log(`  Operator commission: ${settlement.operatorCommission}`);
-  console.log(`  Payer account after: funds=${payerAfter.funds}, lockupCurrent=${payerAfter.lockupCurrent}, lockupRate=${payerAfter.lockupRate}, lockupLastSettledAt=${payerAfter.lockupLastSettledAt}`);
+  context.state.set(`SETTLEMENT_TX_RAIL_${rail.railId}`, result.txHash);
+  context.state.set(`PAID_AMOUNT_RAIL_${rail.railId}`, result.paidAmount);
+  context.state.set(`GROSS_SETTLED_AMOUNT_RAIL_${rail.railId}`, result.settlement.totalSettledAmount);
+  context.state.set(`NETWORK_FEE_RAIL_${rail.railId}`, result.settlement.networkFee);
+  context.state.set(`OPERATOR_COMMISSION_RAIL_${rail.railId}`, result.settlement.operatorCommission);
+  context.state.set(`SETTLED_TARGET_EPOCH_RAIL_${rail.railId}`, result.targetEpoch);
+  context.state.set(`PAYER_FUNDS_AFTER_RAIL_${rail.railId}`, result.payerAfter.funds);
+  context.state.set(`PAYER_LOCKUP_CURRENT_AFTER_RAIL_${rail.railId}`, result.payerAfter.lockupCurrent);
+  context.state.set(`PAYER_LOCKUP_RATE_AFTER_RAIL_${rail.railId}`, result.payerAfter.lockupRate);
+  context.state.set(`PAYER_LOCKUP_LAST_SETTLED_AFTER_RAIL_${rail.railId}`, result.payerAfter.lockupLastSettledAt);
+
   console.log("=== Selected V2 rail settled without advancing the other rail ===");
-  return { txHash, paidAmount, targetEpoch, payerBefore, payerAfter, settlement };
+  return result;
 }
 
 export async function assertSharedPayerAccountCoversBothRails(
@@ -522,6 +604,16 @@ export function assertSettlementAccountingMatchesEvent(accounting: SettlementAcc
     accounting.totalNetPayeeAmount + accounting.operatorCommission + accounting.networkFee,
     "settlement gross amount equals net payee amount plus fees"
   );
+}
+
+export function assertExactSettlementAccounting(accounting: ExactSettlementAccounting): void {
+  assertEqual(accounting.payerFundsDelta, accounting.expectedGross, "payer gross funds delta");
+  assertEqual(accounting.payeeFundsDelta, accounting.expectedNetPayee, "payee net funds delta");
+  assertEqual(accounting.totalSettledAmount, accounting.expectedGross, "RailSettled gross amount");
+  assertEqual(accounting.totalNetPayeeAmount, accounting.expectedNetPayee, "RailSettled net payee amount");
+  assertEqual(accounting.operatorCommission, 0n, "RailSettled operator commission");
+  assertEqual(accounting.networkFee, accounting.expectedNetworkFee, "RailSettled network fee");
+  assertSettlementAccountingMatchesEvent(accounting);
 }
 
 function railSettledEventFromReceipt(context: ScenarioContext, receipt: TxReceipt, expectedRailId: bigint): RailSettledEvent {

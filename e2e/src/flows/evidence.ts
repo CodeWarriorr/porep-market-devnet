@@ -1,4 +1,5 @@
 import { assertEqual } from "../assertions.js";
+import { billed32GiBUnits, ratePerEpoch } from "../expected.js";
 import type { ScenarioContext } from "../runtime.js";
 import { envBigInt } from "../runtime.js";
 import { artifactAbis } from "../contracts/abi.js";
@@ -107,8 +108,11 @@ export async function activateEvidenceAndAssertDealActive(
   assertEqual(deal.state, 30n, `V2 deal ${accepted.dealId} state ACTIVE`);
   const capacity = await view.dealCapacity(accepted.dealId);
   if (capacity.committedBytes <= 0n) throw new Error(`committedBytes expected > 0, got ${capacity.committedBytes}`);
+  const payment = await view.dealPayment(accepted.dealId);
+  const billedUnits = billed32GiBUnits(capacity.committedBytes);
+  const expectedRate = ratePerEpoch(payment.pricePer32GiBPerMonth, billedUnits);
   const currentRail = await view.rail(rail.railId);
-  if (currentRail.paymentRate <= 0n) throw new Error(`rail payment rate expected > 0, got ${currentRail.paymentRate}`);
+  assertEqual(currentRail.paymentRate, expectedRate, "rail payment rate from committed bytes");
 
   context.state.set("DEAL_STATE", "ACTIVE");
   context.state.set("COMMITTED_BYTES", capacity.committedBytes);
@@ -117,6 +121,7 @@ export async function activateEvidenceAndAssertDealActive(
   console.log(`  TX: ${txHash}`);
   console.log("  Deal state: ACTIVE");
   console.log(`  Committed bytes: ${capacity.committedBytes}`);
+  console.log(`  Billed 32 GiB units (ceil): ${billedUnits}`);
   console.log(`  Rail payment rate: ${currentRail.paymentRate}`);
   console.log("=== V2 evidence activated ===");
   return { dealId: accepted.dealId, committedBytes: capacity.committedBytes, paymentRate: currentRail.paymentRate };

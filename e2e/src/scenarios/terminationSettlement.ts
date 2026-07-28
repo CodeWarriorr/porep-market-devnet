@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { Evm } from "../contracts/evm.js";
-import { ContractRevertError } from "../contracts/reverts.js";
 import { contracts } from "../contracts/views.js";
 import type { ScenarioContext } from "../runtime.js";
 import { runStep } from "../runtime.js";
+import { configureSettlementCadenceForDevnet, setSliAttestationForDeal, settleRailAtEpochAndAssertOutcome } from "../flows/settlement.js";
 import { runBasicActivationFlow } from "./basicActivationFlow.js";
 
 export async function runTerminationSettlement(
@@ -27,8 +27,14 @@ export async function runTerminationSettlement(
   assert.ok(terminationOracle, "TerminationOracle is missing");
   const evm = new Evm(context);
   const view = contracts(context);
+  await runStep(context, "set SLI attestation before terminated-evidence settlement", () =>
+    setSliAttestationForDeal(context, { dealId }));
+  await runStep(context, "configure one-epoch settlement cadence", async () => {
+    context.config.env.V2_MIN_SETTLEMENT_EPOCHS = "1";
+    await configureSettlementCadenceForDevnet(context, { dealId });
+  });
   const beforeRail = await view.rail(railId);
-  const beforePayeeFunds = await view.accountFunds(beforeRail.to);
+  const beforeService = await view.dealService(dealId);
 
   await runStep(context, "mark every deal claim terminated", async () => {
     await evm.send(
@@ -45,70 +51,33 @@ export async function runTerminationSettlement(
     }
   });
 
-  const targetEpoch = beforeRail.settledUpTo + 1n;
-  await runStep(context, "reject zero-paid settlement without cursor loss", async () => {
-    try {
-      await evm.simulate(
-        context.config.addresses.filecoinPay,
-        "settleRail(uint256,uint256)",
-        [railId, targetEpoch],
-      );
-    } catch (error) {
-      if (!(error instanceof ContractRevertError)) throw error;
-      await assertCurrentSettlementState(view, railId, beforeRail.settledUpTo, beforePayeeFunds);
-      context.state.set("TERMINATION_SETTLEMENT_RESULT", "reverted");
-      return;
-    }
-    await evm.send(
-      context.config.addresses.filecoinPay,
-      "settleRail(uint256,uint256)",
-      [railId, targetEpoch],
+  await runStep(context, "refresh terminated claim evidence to data-size mismatch", async () => {
+    const evidenceData = evm.abiEncode("f(uint256)", BigInt(claimIds.length));
+    await evm.sendWithPrivateKey(
+      context.config.identityKeys.porepService,
+      context.config.addresses.poRepMarket,
+      "refreshEvidenceStatus(uint256,bytes)",
+      [dealId, evidenceData],
     );
+    const status = await view.evidenceStatus(dealId);
+    assert.equal(status.activeCoveredBytes, 0n, "terminated evidence active covered bytes");
+    assert.equal(status.result, 60n, "terminated evidence result COVERED_BYTES_MISMATCH");
+    assert.equal(status.checkedClaims, status.totalClaims, "terminated evidence checked all claims");
+  });
+
+  const targetEpoch = beforeRail.settledUpTo + 1n;
+  await runStep(context, "advance zero-paid settlement across terminated evidence mismatch", async () => {
+    await settleRailAtEpochAndAssertOutcome(context, { dealId }, { railId }, targetEpoch, {
+      settlementAmount: 0n,
+      settleUpto: targetEpoch,
+      note: "data size does not match the deal",
+    }, beforeService.lastSettledEpoch);
     const afterRail = await view.rail(railId);
-    const afterPayeeFunds = await view.accountFunds(afterRail.to);
-    assertZeroPaymentDidNotAdvance({
-      beforeCursor: beforeRail.settledUpTo,
-      afterCursor: afterRail.settledUpTo,
-      beforePayeeFunds,
-      afterPayeeFunds,
-    });
-    context.state.set("TERMINATION_SETTLEMENT_RESULT", "unchanged");
+    assert.equal(afterRail.settledUpTo, targetEpoch, "termination settlement rail cursor");
+    context.state.set("TERMINATION_SETTLEMENT_RESULT", "zero-paid-data-size-mismatch");
   });
 
   context.state.set("TERMINATED_CLAIM_IDS_CSV", claimIds.join(","));
   context.state.set("TERMINATION_SETTLEMENT_TARGET", targetEpoch);
   context.state.set("TERMINATION_DEAL_ID", dealId);
-}
-
-async function assertCurrentSettlementState(
-  view: ReturnType<typeof contracts>,
-  railId: bigint,
-  beforeCursor: bigint,
-  beforePayeeFunds: bigint,
-): Promise<void> {
-  const afterRail = await view.rail(railId);
-  assertZeroPaymentDidNotAdvance({
-    beforeCursor,
-    afterCursor: afterRail.settledUpTo,
-    beforePayeeFunds,
-    afterPayeeFunds: await view.accountFunds(afterRail.to),
-  });
-}
-
-export function assertZeroPaymentDidNotAdvance(input: {
-  beforeCursor: bigint;
-  afterCursor: bigint;
-  beforePayeeFunds: bigint;
-  afterPayeeFunds: bigint;
-}): void {
-  assert.equal(
-    input.afterPayeeFunds,
-    input.beforePayeeFunds,
-    "termination settlement unexpectedly paid the provider",
-  );
-  assert.equal(
-    input.afterCursor,
-    input.beforeCursor,
-    "zero-paid settlement consumed the rail cursor",
-  );
 }
