@@ -1,9 +1,16 @@
+import { readFileSync } from "node:fs";
 import type { ScenarioContext } from "../runtime.js";
 import { verifyCurioDevnet } from "../devnet/curio.js";
+import { ensureActiveSectorFixture } from "../fixtures/activeSector.js";
 import { runAccessControlGuards } from "./accessControlGuards.js";
 import { runActivationLifecycleGuards } from "./activationLifecycleGuards.js";
+import { runActivationPaddingBounds } from "./activationPaddingBounds.js";
 import { runActorTokenGuards } from "./actorTokenGuards.js";
 import { runBasicActivationFlow } from "./basicActivationFlow.js";
+import { runCapacityExhaustion } from "./capacityExhaustion.js";
+import { runClientFundsExhaustion } from "./clientFundsExhaustion.js";
+import { runDataCapMalformedInput } from "./datacapMalformedInput.js";
+import { runAdapterDisable } from "./adapterDisable.js";
 import { runEvidenceAuthorityGuards } from "./evidenceAuthorityGuards.js";
 import { runEvidenceNoClaimActivationGuard } from "./evidenceNoClaimActivationGuard.js";
 import { runFullAvailableFlow } from "./fullAvailableFlow.js";
@@ -14,6 +21,7 @@ import { runSharedClientMultiRailSettlement } from "./sharedClientMultiRailSettl
 import { runProposalSmoke, runValidatorRailSmoke } from "./smokeFlows.js";
 import { runDirectOnboardingNotification } from "./directOnboardingNotification.js";
 import { runDirectOnboardingNotificationFailure } from "./directOnboardingNotificationFailure.js";
+import { runDuplicateManifestLifecycle } from "./duplicateManifestLifecycle.js";
 import { runSectorStatusActive, runSectorStatusNegative } from "./sectorStatus.js";
 import { runUpgradeContinuity } from "./upgradeContinuity.js";
 import { runTerminationSettlement } from "./terminationSettlement.js";
@@ -38,6 +46,7 @@ export type ScenarioDefinition = {
   timeoutMs: number;
   requiredContracts: string[];
   fixtures?: Array<"active-sector">;
+  destructive?: boolean;
 };
 
 const MARKET_CONTRACTS = [
@@ -83,8 +92,16 @@ export const scenarioDefinitions: Record<string, ScenarioDefinition> = {
   "accepted-deal-expiration": contract(runAcceptedDealExpiration, ["contract", "security"]),
   "accepted-deal-rejection": contract(runAcceptedDealRejection, ["contract", "security"]),
   "activation-lifecycle-guards": sealing(runActivationLifecycleGuards, ["curio", "sealing", "security"]),
+  "activation-padding-bounds": contract(runActivationPaddingBounds, ["contract", "security"]),
   "actor-token-guards": contract(runActorTokenGuards, ["contract", "security"]),
   "basic-activation": sealing(runBasicActivationFlow),
+  "capacity-exhaustion": contract(runCapacityExhaustion),
+  "client-funds-exhaustion": sealing(runClientFundsExhaustion),
+  "datacap-malformed-input": contract(runDataCapMalformedInput, ["contract", "security"]),
+  "adapter-disable": {
+    ...sealing(runAdapterDisable),
+    destructive: true,
+  },
   "direct-onboarding-notification": {
     run: runDirectOnboardingNotification,
     tags: ["curio", "sealing"],
@@ -97,6 +114,7 @@ export const scenarioDefinitions: Record<string, ScenarioDefinition> = {
     timeoutMs: CURIO_TIMEOUT_MS,
     requiredContracts: [...MARKET_CONTRACTS, "FailingNotificationReceiver"],
   },
+  "duplicate-manifest-lifecycle": contract(runDuplicateManifestLifecycle, ["contract", "security"]),
   "curio-restart-replay": {
     run: runCurioRestartReplay,
     tags: ["curio", "sealing", "security"],
@@ -149,15 +167,46 @@ export function resolveScenario(name: string): ScenarioDefinition {
   return scenario;
 }
 
+export function assertScenarioPrerequisites(
+  name: string,
+  definition: ScenarioDefinition,
+  deploymentRecordPath: string,
+): void {
+  const deployment = JSON.parse(readFileSync(deploymentRecordPath, "utf8")) as {
+    contracts?: Record<string, unknown>;
+  };
+  const contracts = deployment.contracts ?? {};
+  const missing = definition.requiredContracts.filter(
+    (contract) => !Object.hasOwn(contracts, contract),
+  );
+  if (missing.length === 0) return;
+  throw new Error(
+    `scenario prerequisite failed: ${name} requires deployment contract${missing.length === 1 ? "" : "s"} ${missing.join(", ")}`,
+  );
+}
+
+export async function consumeScenarioFixtures(
+  context: ScenarioContext,
+  definition: ScenarioDefinition,
+  activeSector: (context: ScenarioContext) => Promise<unknown> =
+    ensureActiveSectorFixture,
+): Promise<void> {
+  for (const fixture of definition.fixtures ?? []) {
+    if (fixture === "active-sector") await activeSector(context);
+  }
+}
+
 export function resolveSuite(name: string): string[] {
   if (name === "full") {
     return scenarioNames.filter((scenario) =>
       !scenarioDefinitions[scenario]!.tags.includes("upgrade")
+        && !scenarioDefinitions[scenario]!.destructive
     );
   }
   if (name === "contract" || name === "curio" || name === "security") {
     return scenarioNames.filter((scenario) =>
       scenarioDefinitions[scenario]!.tags.includes(name)
+        && !scenarioDefinitions[scenario]!.destructive
     );
   }
   throw new Error(`unknown suite: ${name}`);

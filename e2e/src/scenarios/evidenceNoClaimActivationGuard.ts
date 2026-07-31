@@ -8,7 +8,7 @@ import {
   depositAndApproveValidatorOperator
 } from "../flows/validatorRail.js";
 import {
-  finishDataCapPostingAndAssertAllocated,
+  expectDataCapPostingOrderGuards,
   generatePiece,
   submitDataCapAllocation
 } from "../flows/datacap.js";
@@ -25,7 +25,7 @@ export async function runEvidenceNoClaimActivationGuard(context: ScenarioContext
   const rail = await runStep(context, "create prepared rail", () => createPreparedRailAndAssertRate(context, deal, validator));
   const piece = await runStep(context, "generate piece", () => generatePiece(context));
   await runStep(context, "submit DataCap allocation without provider claim", () => submitDataCapAllocation(context, deal, piece));
-  await runStep(context, "finish DataCap posting", () => finishDataCapPostingAndAssertAllocated(context, deal));
+  await runStep(context, "assert DataCap posting-order guards", () => expectDataCapPostingOrderGuards(context, deal, piece));
   await runStep(context, "submit evidence batch with no claim coverage", () =>
     submitEvidenceBatchAndAssertNoClaimCoverage(context, deal)
   );

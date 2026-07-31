@@ -1,8 +1,7 @@
 import type { ScenarioContext } from "../runtime.js";
 import { runStep } from "../runtime.js";
 import {
-  expectDirectDataCapAdapterRefreshToFail,
-  expectUnauthorizedEvidenceRefreshToFail
+  expectDirectDataCapAdapterRefreshToFail
 } from "../flows/accessControl.js";
 import {
   finishDataCapPostingAndAssertAllocated,
@@ -50,9 +49,8 @@ export async function runEvidenceAuthorityGuards(context: ScenarioContext): Prom
   const active = await runStep(context, "activate evidence for evidence authority guard", () =>
     activateEvidenceAndAssertDealActive(context, deal, rail)
   );
-  await runStep(context, "refresh evidence as authorized service", () => refreshEvidenceStatusAndAssertActive(context, active));
-  await runStep(context, "prove unauthorized market evidence refresh fails", () =>
-    expectUnauthorizedEvidenceRefreshToFail(context, deal)
+  await runStep(context, "refresh evidence as independent caller", () =>
+    refreshEvidenceStatusAndAssertActive(context, active)
   );
   await runStep(context, "prove direct DataCap adapter refresh fails", () => expectDirectDataCapAdapterRefreshToFail(context, deal));
 }

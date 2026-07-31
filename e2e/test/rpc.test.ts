@@ -62,3 +62,16 @@ test("stable receipt requires the same successful canonical inclusion", () => {
   assert.equal(isStableReceipt(first, { ...first, blockHash: `0x${"3".repeat(64)}` }), false);
   assert.equal(isStableReceipt(first, { ...first, status: "0x0" }), false);
 });
+
+test("stable receipt accepts the same reverted canonical inclusion", () => {
+  const reverted: TxReceipt = {
+    transactionHash: `0x${"1".repeat(64)}`,
+    status: "0x0",
+    blockHash: `0x${"2".repeat(64)}`,
+    blockNumber: "0x10",
+    logs: [],
+  };
+
+  assert.equal(isStableReceipt(reverted, { ...reverted }), true);
+  assert.equal(isStableReceipt(reverted, { ...reverted, blockHash: `0x${"3".repeat(64)}` }), false);
+});

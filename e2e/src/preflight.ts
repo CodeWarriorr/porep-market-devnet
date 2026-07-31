@@ -10,6 +10,10 @@ export type PreflightFacts = {
   provider: string;
   chainId: number;
   expectedChainId: number;
+  deploymentPorepCommit: string;
+  expectedPorepCommit: string;
+  deploymentTargetMode: "locked" | "local";
+  deploymentTargetDirty: boolean;
   contractCount: number;
   abiCount: number;
   fundedIdentityCount: number;
@@ -104,6 +108,10 @@ export function collectPreflightFacts(context: ScenarioContext): PreflightFacts 
     provider: context.config.provider,
     chainId,
     expectedChainId: context.config.expectedChainId,
+    deploymentPorepCommit: context.config.deploymentPorepCommit,
+    expectedPorepCommit: context.config.expectedPorepCommit,
+    deploymentTargetMode: context.config.deploymentTargetMode,
+    deploymentTargetDirty: context.config.deploymentTargetDirty,
     contractCount: Object.keys(manifest.contracts).length,
     abiCount: Object.keys(artifactAbis(context)).length,
     fundedIdentityCount,
@@ -119,6 +127,16 @@ export function collectPreflightFacts(context: ScenarioContext): PreflightFacts 
 
 export function assertPreflightFacts(facts: PreflightFacts): void {
   const failures: string[] = [];
+  if (facts.deploymentTargetMode === "locked") {
+    if (facts.deploymentTargetDirty) {
+      failures.push("locked deployment target is dirty");
+    }
+    if (facts.deploymentPorepCommit !== facts.expectedPorepCommit) {
+      failures.push(
+        `deployment target commit mismatch: expected ${facts.expectedPorepCommit}, got ${facts.deploymentPorepCommit}`,
+      );
+    }
+  }
   if (facts.chainId !== facts.expectedChainId) {
     failures.push(`chain ID ${facts.expectedChainId}`);
   }
@@ -139,6 +157,7 @@ export function buildPreflightSummary(facts: PreflightFacts): string {
     `ready provider=${facts.provider} generation=${facts.generation}`,
     `chain=${facts.chainId} contracts=${facts.contractCount} abis=${facts.abiCount}`,
     `fundedIdentities=${facts.fundedIdentityCount} offers=${facts.offerCount}`,
+    `target=${facts.deploymentTargetMode} dirty=${facts.deploymentTargetDirty} commit=${facts.deploymentPorepCommit}`,
     `dataCapAuthority=${facts.dataCapAuthority}`,
   ].join("\n") + "\n";
 }

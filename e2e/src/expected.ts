@@ -1,5 +1,7 @@
 export const EPOCHS_IN_MONTH = 86_400n;
+export const EVIDENCE_REFRESH_GRACE_EPOCHS = 23_040n;
 export const BYTES_PER_32_GIB = 32n * 1024n * 1024n * 1024n;
+export const PUBLIC_DEAL_TYPE = 10n;
 
 function requireNonNegative(value: bigint, name: string): void {
   if (value < 0n) {
@@ -20,6 +22,13 @@ export function ratePerEpoch(pricePer32GiBPerMonth: bigint, units: bigint): bigi
   requireNonNegative(pricePer32GiBPerMonth, "price");
   requireNonNegative(units, "units");
   return ceilDiv(pricePer32GiBPerMonth * units, EPOCHS_IN_MONTH);
+}
+
+export function activationPaymentRate(
+  pricePer32GiBPerMonth: bigint,
+  committedBytes: bigint,
+): bigint {
+  return ratePerEpoch(pricePer32GiBPerMonth, billed32GiBUnits(committedBytes));
 }
 
 export function dueAmount(

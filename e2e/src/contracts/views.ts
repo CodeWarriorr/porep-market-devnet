@@ -10,8 +10,16 @@ export type Deal = {
   offerId: bigint;
   state: bigint;
   evidenceAdapter: string;
+  dealType: bigint;
   validator: string;
   railId: bigint;
+  proposedAtEpoch: bigint;
+};
+
+export type OfferPayment = {
+  token: string;
+  active: boolean;
+  pricePer32GiBPerMonth: bigint;
 };
 
 export type DealSlis = {
@@ -99,8 +107,8 @@ export class ContractViews {
     return String(value[2]);
   }
 
-  async offerView(offerId: bigint, paymentToken: string): Promise<Result> {
-    return await this.evm.contract(this.context.config.addresses.spRegistry, this.abi.spRegistry).getOfferView(offerId, paymentToken) as Result;
+  async offerView(offerId: bigint): Promise<Result> {
+    return await this.evm.contract(this.context.config.addresses.spRegistry, this.abi.spRegistry).getOfferView(offerId) as Result;
   }
 
   async paymentTokenConfig(paymentToken: string): Promise<Result> {
@@ -117,8 +125,10 @@ export class ContractViews {
       offerId: firstUint(value[3]),
       state: firstUint(value[4]),
       evidenceAdapter: String(value[5]),
-      validator: String(value[6]),
-      railId: firstUint(value[7])
+      dealType: firstUint(value[6]),
+      validator: String(value[7]),
+      railId: firstUint(value[8]),
+      proposedAtEpoch: firstUint(value[9])
     };
   }
 
@@ -135,6 +145,21 @@ export class ContractViews {
   async dealCapacity(dealId: bigint): Promise<{ reservedBytes: bigint; committedBytes: bigint }> {
     const value = await this.evm.contract(this.context.config.addresses.poRepMarket, this.abi.poRepMarket).getDealCapacity(dealId) as Result;
     return { reservedBytes: firstUint(value[0]), committedBytes: firstUint(value[1]) };
+  }
+
+  async dealIdsByState(
+    state: bigint,
+    offset: bigint,
+    limit: bigint,
+  ): Promise<{ dealIds: bigint[]; total: bigint }> {
+    const value = await this.evm.contract(
+      this.context.config.addresses.poRepMarket,
+      this.abi.poRepMarket,
+    ).getDealIdsByState(state, offset, limit) as Result;
+    return {
+      dealIds: resultArrayToBigints(value[0]),
+      total: firstUint(value[1]),
+    };
   }
 
   async dealPayment(dealId: bigint): Promise<{ token: string; payee: string; pricePer32GiBPerMonth: bigint }> {
@@ -247,6 +272,14 @@ export class ContractViews {
     return Boolean(await this.evm.contract(this.context.config.addresses.dataCapEvidenceAdapter, this.abi.dataCapEvidenceAdapter).isDataCapPostingFinished(dealId));
   }
 
+  async dataCapAllocatedBytes(dealId: bigint): Promise<bigint> {
+    return firstUint(await this.evm.contract(this.context.config.addresses.dataCapEvidenceAdapter, this.abi.dataCapEvidenceAdapter).getAllocatedBytes(dealId));
+  }
+
+  async dataCapOperational(): Promise<boolean> {
+    return Boolean(await this.evm.contract(this.context.config.addresses.dataCapEvidenceAdapter, this.abi.dataCapEvidenceAdapter).isOperational());
+  }
+
   async evidenceStatus(dealId: bigint): Promise<EvidenceStatus> {
     const market = this.evm.contract(this.context.config.addresses.poRepMarket, this.abi.poRepMarket);
     const value = await market.currentEvidenceStatus.staticCall(dealId) as Result;
@@ -258,10 +291,6 @@ export class ContractViews {
       checkedClaims: firstUint(value[4]),
       totalClaims: firstUint(value[5])
     };
-  }
-
-  async evidenceRefreshGraceEpochs(): Promise<bigint> {
-    return firstUint(await this.evm.contract(this.context.config.addresses.poRepMarket, this.abi.poRepMarket).EVIDENCE_REFRESH_GRACE_EPOCHS());
   }
 
   async sliAttestation(dealId: bigint): Promise<{ lastUpdate: bigint; slis: DealSlis }> {

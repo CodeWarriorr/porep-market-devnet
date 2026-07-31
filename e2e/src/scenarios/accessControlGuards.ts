@@ -1,6 +1,8 @@
 import type { ScenarioContext } from "../runtime.js";
 import { runStep } from "../runtime.js";
 import {
+  expectDirectDealSettlementValidationToFail,
+  expectUnauthorizedProviderCapacityWritesToFail,
   expectUnauthorizedSettlementCadenceUpdateToFail,
   expectUnauthorizedSliUpdateToFail,
   expectUnauthorizedUpgradeToFail,
@@ -15,6 +17,10 @@ export async function runAccessControlGuards(context: ScenarioContext): Promise<
     expectUnauthorizedSettlementCadenceUpdateToFail(context, deal)
   );
   await runStep(context, "prove unauthorized SLI update fails", () => expectUnauthorizedSliUpdateToFail(context, deal));
+  await runStep(context, "prove unauthorized provider capacity writes fail", () =>
+    expectUnauthorizedProviderCapacityWritesToFail(context, deal));
+  await runStep(context, "prove direct settlement validation fails", () =>
+    expectDirectDealSettlementValidationToFail(context, deal));
   await runStep(context, "prove unauthorized upgrade fails", () =>
     expectUnauthorizedUpgradeToFail(context));
 }

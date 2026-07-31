@@ -4,7 +4,7 @@ import type { ScenarioContext } from "../runtime.js";
 import { envBigInt, envValue } from "../runtime.js";
 import { artifactAbis } from "../contracts/abi.js";
 import { Evm, lower } from "../contracts/evm.js";
-import { contracts } from "../contracts/views.js";
+import { contracts, type OfferPayment } from "../contracts/views.js";
 import { requireDevnet } from "../devnet/docker.js";
 
 export type ProviderOffer = {
@@ -15,7 +15,14 @@ export type ProviderOffer = {
   pricePer32GiBPerMonth: bigint;
 };
 
-export async function registerDevnetProviderAndOffer(context: ScenarioContext): Promise<ProviderOffer> {
+export type ProviderSetupOptions = {
+  preserveAvailableCapacity?: boolean;
+};
+
+export async function registerDevnetProviderAndOffer(
+  context: ScenarioContext,
+  options: ProviderSetupOptions = {},
+): Promise<ProviderOffer> {
   requireDevnet(context);
   const evm = new Evm(context);
   const view = contracts(context);
@@ -40,7 +47,7 @@ export async function registerDevnetProviderAndOffer(context: ScenarioContext): 
     console.log(`Provider ${provider} already registered, preserving used capacity`);
     const capacity = await view.providerCapacity(provider);
     const requiredCapacity = capacityFloor(capacity, availableBytes);
-    if (capacity.availableBytes < requiredCapacity) {
+    if (!options.preserveAvailableCapacity && capacity.availableBytes < requiredCapacity) {
       await evm.sendWithPrivateKey(
         operatorKey,
         context.config.addresses.spRegistry,
@@ -72,7 +79,7 @@ export async function registerDevnetProviderAndOffer(context: ScenarioContext): 
 
   let existingOffer: bigint | undefined;
   for (const id of await view.providerOfferIds(provider)) {
-    if (id > 0n && offerMatches(context, await view.offerView(id, paymentToken))) {
+    if (id > 0n && offerMatches(context, await view.offerView(id))) {
       existingOffer = id;
       break;
     }
@@ -80,8 +87,9 @@ export async function registerDevnetProviderAndOffer(context: ScenarioContext): 
   let offerId: bigint;
   if (existingOffer !== undefined) {
     offerId = existingOffer;
-    const existing = await view.offerView(offerId, paymentToken);
-    if (offerPaymentNeedsUpdate(Boolean(existing[6]), BigInt(existing[7].toString()), price)) {
+    const existing = await view.offerView(offerId);
+    const payment = selectOfferPayment(offerPayments(existing), paymentToken);
+    if (!payment || offerPaymentNeedsUpdate(payment.active, payment.pricePer32GiBPerMonth, price)) {
       console.log(`Provider ${provider} already has offer ${offerId}, updating payment row`);
       await evm.sendWithPrivateKey(operatorKey, context.config.addresses.spRegistry, "setOfferPayment(uint256,address,bool,uint256)", [
         offerId,
@@ -108,11 +116,13 @@ export async function registerDevnetProviderAndOffer(context: ScenarioContext): 
     offerId = BigInt(event.args[0].toString());
   }
 
-  const offer = await view.offerView(offerId, paymentToken);
+  const offer = await view.offerView(offerId);
+  const payment = selectOfferPayment(offerPayments(offer), paymentToken);
   assertEqual(BigInt(offer[1].toString()), provider, "offer provider");
   assertEqual(Boolean(offer[2]), true, "offer active");
-  assertEqual(Boolean(offer[6]), true, "offer payment active");
-  assertEqual(BigInt(offer[7].toString()), price, "offer price");
+  assertEqual(payment !== undefined, true, "offer payment row exists");
+  assertEqual(payment?.active, true, "offer payment active");
+  assertEqual(payment?.pricePer32GiBPerMonth, price, "offer price");
 
   context.state.set("PROVIDER", provider);
   context.state.set("PROVIDER_PAYEE", providerPayee);
@@ -134,12 +144,37 @@ export function capacityFloor(
   return current.availableBytes > needed ? current.availableBytes : needed;
 }
 
+export function remainingProviderCapacity(current: {
+  availableBytes: bigint;
+  committedBytes: bigint;
+  pendingBytes: bigint;
+}): bigint {
+  const used = current.committedBytes + current.pendingBytes;
+  return current.availableBytes > used ? current.availableBytes - used : 0n;
+}
+
 export function offerPaymentNeedsUpdate(
   active: boolean,
   currentPrice: bigint,
   requestedPrice: bigint,
 ): boolean {
   return !active || currentPrice !== requestedPrice;
+}
+
+export function selectOfferPayment(
+  payments: OfferPayment[],
+  paymentToken: string,
+): OfferPayment | undefined {
+  const requested = lower(paymentToken);
+  return payments.find((payment) => lower(payment.token) === requested);
+}
+
+function offerPayments(offer: Result): OfferPayment[] {
+  return (offer[5] as Result[]).map((payment) => ({
+    token: String(payment[0]),
+    active: Boolean(payment[1]),
+    pricePer32GiBPerMonth: BigInt(payment[2].toString()),
+  }));
 }
 
 function offerMatches(context: ScenarioContext, offer: Result): boolean {

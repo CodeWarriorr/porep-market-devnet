@@ -4,8 +4,9 @@ import type { ScenarioContext } from "../runtime.js";
 import { envBigInt, envNumber, envValue } from "../runtime.js";
 import { artifactAbis } from "../contracts/abi.js";
 import { Evm, lower } from "../contracts/evm.js";
-import { expectCustomError } from "../contracts/reverts.js";
+import { expectRevertOnSend } from "../contracts/reverts.js";
 import { contracts, type Deal, type DealSlis } from "../contracts/views.js";
+import { PUBLIC_DEAL_TYPE } from "../expected.js";
 import type { ProviderOffer } from "./provider.js";
 import { requireDevnet } from "../devnet/docker.js";
 
@@ -47,14 +48,15 @@ export async function proposeDealAndAssertAccepted(
   const latency = envBigInt(context, "V2_LATENCY_MS", 100n);
   const indexing = envBigInt(context, "V2_INDEXING_PCT", 100n);
   const paymentToken = envValue(context, "V2_PAYMENT_TOKEN", context.config.addresses.usdcToken);
+  const dealType = envBigInt(context, "V2_DEAL_TYPE", PUBLIC_DEAL_TYPE);
   const manifest = nextProposalManifest(context);
 
   console.log("Proposing V2 deal...");
   const txHash = await evm.send(
     context.config.addresses.poRepMarket,
-    "proposeDeal((bytes32,uint256,uint256,string,address,uint32,(uint16,uint64,uint16,uint8)))",
+    "proposeDeal((bytes32,uint256,uint256,string,address,uint32,uint8,(uint16,uint64,uint16,uint8)))",
     [
-      `(${manifest.hash},${requestedSize},${price},${manifest.location},${paymentToken},${durationDays},(${retrievability},${bandwidth},${latency},${indexing}))`
+      `(${manifest.hash},${requestedSize},${price},${manifest.location},${paymentToken},${durationDays},${dealType},(${retrievability},${bandwidth},${latency},${indexing}))`
     ]
   );
   console.log(`TX: ${txHash}`);
@@ -70,6 +72,8 @@ export async function proposeDealAndAssertAccepted(
 
   assertEqual(deal.state, 20n, `V2 deal ${dealId} state`);
   assertEqual(lower(deal.evidenceAdapter), lower(context.config.addresses.dataCapEvidenceAdapter), "evidence adapter");
+  assertEqual(deal.dealType, dealType, "deal type");
+  assertEqual(deal.proposedAtEpoch, BigInt(evm.receipt(txHash).blockNumber), "proposedAtEpoch");
   assertEqual(deal.offerId > 0n, true, "deal froze provider offer id");
   assertEqual(lower(data.manifestHash), lower(manifest.hash), "manifestHash");
   assertEqual(data.manifestLocation, manifest.location, "manifestLocation");
@@ -114,7 +118,8 @@ export async function expectDealProposalWithMismatchedPaymentTokenToFail(
   const bandwidth = envBigInt(context, "V2_BANDWIDTH_BYTES_PER_SECOND", 1_048_576n);
   const latency = envBigInt(context, "V2_LATENCY_MS", 100n);
   const indexing = envBigInt(context, "V2_INDEXING_PCT", 100n);
-  const beforeOffer = await view.offerView(offer.offerId, offer.paymentToken);
+  const dealType = envBigInt(context, "V2_DEAL_TYPE", PUBLIC_DEAL_TYPE);
+  const beforeOffer = await view.offerView(offer.offerId);
 
   console.log("=== Expect V2 proposal with mismatched payment token to fail ===");
   console.log(`  Offer: ${offer.offerId}`);
@@ -122,24 +127,23 @@ export async function expectDealProposalWithMismatchedPaymentTokenToFail(
   console.log(`  Proposal token: ${unsupportedToken}`);
   console.log("  Expected boundary: SPRegistry cannot match an offer payment row for the unsupported token");
 
-  const error = await expectCustomError(
-    () => evm.simulate(
-      context.config.addresses.poRepMarket,
-      "proposeDeal((bytes32,uint256,uint256,string,address,uint32,(uint16,uint64,uint16,uint8)))",
-      [
-        `(${manifest.hash},${requestedSize},${price},${manifest.location},${unsupportedToken},${durationDays},(${retrievability},${bandwidth},${latency},${indexing}))`
-      ]
-    ),
+  const error = await expectRevertOnSend(
+    evm,
+    context.config.privateKeyTest,
+    context.config.addresses.poRepMarket,
+    "proposeDeal((bytes32,uint256,uint256,string,address,uint32,uint8,(uint16,uint64,uint16,uint8)))",
+    [
+      `(${manifest.hash},${requestedSize},${price},${manifest.location},${unsupportedToken},${durationDays},${dealType},(${retrievability},${bandwidth},${latency},${indexing}))`
+    ],
     artifactAbis(context).spRegistry,
     "NoOfferMatched"
   );
   console.log(`  Mismatched-token proposal failed with ${error.name}`);
 
-  const afterOffer = await view.offerView(offer.offerId, offer.paymentToken);
+  const afterOffer = await view.offerView(offer.offerId);
   assertEqual(BigInt(afterOffer[1].toString()), BigInt(beforeOffer[1].toString()), "offer provider after mismatched-token proposal");
   assertEqual(Boolean(afterOffer[2]), Boolean(beforeOffer[2]), "offer active after mismatched-token proposal");
-  assertEqual(Boolean(afterOffer[6]), Boolean(beforeOffer[6]), "offer payment active after mismatched-token proposal");
-  assertEqual(BigInt(afterOffer[7].toString()), BigInt(beforeOffer[7].toString()), "offer price after mismatched-token proposal");
+  assertEqual(String(afterOffer[5]), String(beforeOffer[5]), "offer payments after mismatched-token proposal");
   console.log("Expected failure observed for: mismatched payment token proposal");
 }
 

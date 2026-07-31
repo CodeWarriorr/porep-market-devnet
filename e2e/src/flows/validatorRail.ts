@@ -6,7 +6,7 @@ import { artifactAbis } from "../contracts/abi.js";
 import { Evm, lower, requireAddress } from "../contracts/evm.js";
 import { contracts, type Rail } from "../contracts/views.js";
 import { signDepositPermit } from "../contracts/permit.js";
-import { expectCustomError } from "../contracts/reverts.js";
+import { expectRevertOnSend } from "../contracts/reverts.js";
 import type { AcceptedDeal } from "./deal.js";
 import { requireDevnet } from "../devnet/docker.js";
 
@@ -93,6 +93,66 @@ export async function depositAndApproveValidatorOperator(
   return { txHash, depositAmount: permit.amount };
 }
 
+export function requireSufficientTokenBalance(balance: bigint, exactDepositAmount: bigint): void {
+  if (balance < exactDepositAmount) {
+    throw new Error(
+      `exact bounded deposit requires ${exactDepositAmount} MockUSDC, but client has ${balance}`,
+    );
+  }
+}
+
+export async function approveValidatorOperatorWithoutDeposit(
+  context: ScenarioContext,
+  validator: DealValidator,
+): Promise<string> {
+  requireDevnet(context);
+  const evm = new Evm(context);
+  const view = contracts(context);
+  const txHash = await evm.send(
+    context.config.addresses.filecoinPay,
+    "setOperatorApproval(address,address,bool,uint256,uint256,uint256)",
+    [
+      context.config.addresses.usdcToken,
+      validator.validator,
+      true,
+      MaxUint256,
+      MaxUint256,
+      MaxUint256,
+    ],
+  );
+  assertEqual(await view.operatorApproved(evm.signerAddress, validator.validator), true, `operator approval for ${validator.validator}`);
+  return txHash;
+}
+
+export async function depositExactWithPermitForApprovedValidator(
+  context: ScenarioContext,
+  validator: DealValidator,
+  depositAmountHuman: string,
+): Promise<{ txHash: string; depositAmount: bigint }> {
+  requireDevnet(context);
+  const evm = new Evm(context);
+  const view = contracts(context);
+  const permit = await signDepositPermit(context, context.config.addresses.filecoinPay, depositAmountHuman);
+  requireSufficientTokenBalance(await view.tokenBalance(evm.signerAddress), permit.amount);
+  const txHash = await evm.send(
+    context.config.addresses.filecoinPay,
+    "depositWithPermitAndIncreaseOperatorApproval(address,address,uint256,uint256,uint8,bytes32,bytes32,address,uint256,uint256)",
+    [
+      context.config.addresses.usdcToken,
+      evm.signerAddress,
+      permit.amount,
+      permit.deadline,
+      permit.v,
+      permit.r,
+      permit.s,
+      validator.validator,
+      0n,
+      0n,
+    ],
+  );
+  return { txHash, depositAmount: permit.amount };
+}
+
 export function missingTokenAmount(balance: bigint, required: bigint): bigint {
   return balance < required ? required - balance : 0n;
 }
@@ -140,8 +200,12 @@ export async function expectRailCreationWithoutOperatorApprovalToFail(
   assertEqual(beforeDeal.railId, 0n, "rail id before unapproved rail creation");
   assertEqual(approved, false, "operator approval before unapproved rail creation");
 
-  const error = await expectCustomError(
-    () => evm.simulate(validator.validator, "createRail()"),
+  const error = await expectRevertOnSend(
+    evm,
+    context.config.privateKeyTest,
+    validator.validator,
+    "createRail()",
+    [],
     artifactAbis(context).validator,
     "OperatorNotApproved"
   );

@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   capacityFloor,
   offerPaymentNeedsUpdate,
+  selectOfferPayment,
 } from "../src/flows/provider.js";
 
 test("provider capacity setup never erases capacity already in use", () => {
@@ -26,4 +27,20 @@ test("provider setup skips an already matching offer payment row", () => {
   assert.equal(offerPaymentNeedsUpdate(true, 10n, 10n), false);
   assert.equal(offerPaymentNeedsUpdate(false, 10n, 10n), true);
   assert.equal(offerPaymentNeedsUpdate(true, 9n, 10n), true);
+});
+
+test("provider setup selects the requested token from all offer payments", () => {
+  const payments = [
+    { token: "0x0000000000000000000000000000000000000001", active: false, pricePer32GiBPerMonth: 9n },
+    { token: "0x00000000000000000000000000000000000000AA", active: true, pricePer32GiBPerMonth: 10n },
+  ];
+
+  assert.deepEqual(
+    selectOfferPayment(payments, "0x00000000000000000000000000000000000000aa"),
+    payments[1],
+  );
+  assert.equal(
+    selectOfferPayment(payments, "0x0000000000000000000000000000000000000002"),
+    undefined,
+  );
 });

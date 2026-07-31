@@ -1,4 +1,5 @@
 import { Interface, type ErrorDescription, type InterfaceAbi } from "ethers";
+import type { Evm } from "./evm.js";
 
 export class ContractRevertError extends Error {
   constructor(readonly data: string) {
@@ -38,4 +39,38 @@ export async function expectCustomError(
     return assertCustomError(error, abi, expectedError);
   }
   throw new Error(`expected ${expectedError}, but the call succeeded`);
+}
+
+export async function expectRevertOnSend(
+  evm: Pick<Evm, "sendWithPrivateKeyAllowRevert">,
+  privateKey: string,
+  to: string,
+  signatureOrData: string,
+  args: Array<string | number | bigint | boolean>,
+  abi: InterfaceAbi,
+  expectedError: string,
+): Promise<ErrorDescription> {
+  const { receipt, revertData } = await evm.sendWithPrivateKeyAllowRevert(
+    privateKey,
+    to,
+    signatureOrData,
+    args,
+  );
+  if (
+    !/^0x[0-9a-fA-F]{64}$/.test(receipt.transactionHash)
+    || !/^0x[0-9a-fA-F]{64}$/.test(receipt.blockHash)
+    || !/^0x[0-9a-fA-F]+$/.test(receipt.blockNumber)
+  ) {
+    throw new Error(`expected ${expectedError}, but the transaction was not mined`);
+  }
+  if (receipt.status === "0x1") {
+    throw new Error(`expected ${expectedError}, but tx ${receipt.transactionHash} succeeded`);
+  }
+  if (receipt.status !== "0x0") {
+    throw new Error(`expected ${expectedError}, but tx ${receipt.transactionHash} has status ${receipt.status}`);
+  }
+  if (!revertData) {
+    throw new Error(`tx ${receipt.transactionHash} was mined and reverted, but no revert data was recovered`);
+  }
+  return assertCustomError(new ContractRevertError(revertData), abi, expectedError);
 }

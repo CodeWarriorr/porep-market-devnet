@@ -4,9 +4,11 @@ import {
   billed32GiBUnits,
   BYTES_PER_32_GIB,
   dueAmount,
+  EVIDENCE_REFRESH_GRACE_EPOCHS,
   netPayeeAmount,
   networkFee,
   EPOCHS_IN_MONTH,
+  PUBLIC_DEAL_TYPE,
   ratePerEpoch,
   settlementAmount,
 } from "../src/expected.js";
@@ -16,7 +18,9 @@ const BYTES_PER_32_GIB_LITERAL = 34_359_738_368n;
 
 test("expected-value constants match the protocol literals", () => {
   assert.equal(EPOCHS_IN_MONTH, 86_400n);
+  assert.equal(EVIDENCE_REFRESH_GRACE_EPOCHS, 23_040n);
   assert.equal(BYTES_PER_32_GIB, 34_359_738_368n);
+  assert.equal(PUBLIC_DEAL_TYPE, 10n);
 });
 
 test("billed32GiBUnits rounds committed bytes up to 32 GiB units", () => {

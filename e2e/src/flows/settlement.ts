@@ -1,10 +1,16 @@
 import { assertEqual } from "../assertions.js";
-import { billed32GiBUnits, netPayeeAmount, networkFee, settlementAmount } from "../expected.js";
+import {
+  billed32GiBUnits,
+  EVIDENCE_REFRESH_GRACE_EPOCHS,
+  netPayeeAmount,
+  networkFee,
+  settlementAmount,
+} from "../expected.js";
 import type { ScenarioContext } from "../runtime.js";
 import { envBigInt } from "../runtime.js";
 import { artifactAbis } from "../contracts/abi.js";
 import { Evm, firstUint, type TxReceipt } from "../contracts/evm.js";
-import { expectCustomError } from "../contracts/reverts.js";
+import { expectRevertOnSend } from "../contracts/reverts.js";
 import { contracts, type Account, type DealSlis, type EvidenceStatus } from "../contracts/views.js";
 import { requireDevnet } from "../devnet/docker.js";
 import type { AcceptedDeal } from "./deal.js";
@@ -40,6 +46,27 @@ export type SettlementOutcomeExpectation = {
   settleUpto: bigint;
   note: string;
 };
+
+export function settleAccountLockupAtEpoch(account: Account, currentEpoch: bigint): Account {
+  if (currentEpoch < account.lockupLastSettledAt) {
+    throw new Error(`lockup settlement epoch ${currentEpoch} is before ${account.lockupLastSettledAt}`);
+  }
+  if (account.lockupRate === 0n) {
+    return { ...account, lockupLastSettledAt: currentEpoch };
+  }
+  const elapsed = currentEpoch - account.lockupLastSettledAt;
+  const availableFunds = account.funds - account.lockupCurrent;
+  if (availableFunds < 0n) {
+    throw new Error(`lockup current ${account.lockupCurrent} exceeds funds ${account.funds}`);
+  }
+  const fundedEpochs = availableFunds / account.lockupRate;
+  const settledEpochs = elapsed < fundedEpochs ? elapsed : fundedEpochs;
+  return {
+    ...account,
+    lockupCurrent: account.lockupCurrent + (account.lockupRate * settledEpochs),
+    lockupLastSettledAt: account.lockupLastSettledAt + settledEpochs,
+  };
+}
 
 type ExactSettlement = {
   txHash: string;
@@ -180,8 +207,9 @@ export async function refreshEvidenceStatusAndAssertActive(
   console.log(`  Batch size: ${batchSize}`);
   console.log(`  Committed bytes: ${active.committedBytes}`);
 
+  await evm.ensureEvmActor(context.config.privateKeySp);
   const txHash = await evm.sendWithPrivateKey(
-    context.config.identityKeys.porepService,
+    context.config.privateKeySp,
     context.config.addresses.poRepMarket,
     "refreshEvidenceStatus(uint256,bytes)",
     [active.dealId, evidenceData],
@@ -225,6 +253,19 @@ export async function refreshEvidenceStatusAndAssertPartial(
   console.log(`  Batch size: ${batchSize}`);
   console.log(`  Committed bytes: ${active.committedBytes}`);
 
+  const previous = await view.evidenceStatus(active.dealId);
+  const preview = evidenceStatusFromResult(await evm.contract(
+    context.config.addresses.poRepMarket,
+    artifactAbis(context).poRepMarket,
+  ).refreshEvidenceStatus.staticCall(active.dealId, evidenceData, {
+    from: context.config.identityAddresses.porepService,
+  }));
+  assertEqual(preview.result, 10n, "partial refresh static result PARTIAL");
+  assertEqual(preview.checkedClaims, batchSize, "partial refresh static checked claims");
+  assertEqual(preview.totalClaims, 2n, "partial refresh static total claims");
+  assertEqual(active.committedBytes % 2n, 0n, "multi-claim committed bytes divide evenly");
+  assertEqual(preview.activeCoveredBytes, active.committedBytes / 2n, "partial refresh static active covered bytes");
+
   const txHash = await evm.sendWithPrivateKey(
     context.config.identityKeys.porepService,
     context.config.addresses.poRepMarket,
@@ -232,13 +273,7 @@ export async function refreshEvidenceStatusAndAssertPartial(
     [active.dealId, evidenceData],
   );
   const status = await view.evidenceStatus(active.dealId);
-  assertEqual(status.result, 10n, "evidence result PARTIAL");
-  if (status.checkedClaims <= 0n || status.checkedClaims >= status.totalClaims) {
-    throw new Error(`partial evidence refresh expected checkedClaims between 0 and total, got ${status.checkedClaims}/${status.totalClaims}`);
-  }
-  if (status.activeCoveredBytes <= 0n || status.activeCoveredBytes >= active.committedBytes) {
-    throw new Error(`partial activeCoveredBytes expected between 0 and committed bytes, got ${status.activeCoveredBytes}/${active.committedBytes}`);
-  }
+  assertPartialEvidenceRefreshPersistence(previous, preview, status, active.committedBytes, batchSize);
 
   context.state.set("PARTIAL_EVIDENCE_REFRESH_TX", txHash);
   context.state.set("PARTIAL_EVIDENCE_ACTIVE_COVERED_BYTES", status.activeCoveredBytes);
@@ -246,11 +281,43 @@ export async function refreshEvidenceStatusAndAssertPartial(
   context.state.set("PARTIAL_EVIDENCE_CHECKED_CLAIMS", status.checkedClaims);
   context.state.set("PARTIAL_EVIDENCE_TOTAL_CLAIMS", status.totalClaims);
   console.log(`  TX: ${txHash}`);
-  console.log(`  Result: PARTIAL`);
+  console.log(`  Static result: PARTIAL`);
+  console.log(`  Persisted result: ${status.result}`);
   console.log(`  Active covered bytes: ${status.activeCoveredBytes}`);
   console.log(`  Checked claims: ${status.checkedClaims} / ${status.totalClaims}`);
   console.log("=== V2 evidence status partially refreshed ===");
   return { txHash, status };
+}
+
+export function assertPartialEvidenceRefreshPersistence(
+  previous: EvidenceStatus,
+  preview: EvidenceStatus,
+  persisted: EvidenceStatus,
+  committedBytes: bigint,
+  batchSize: bigint,
+): void {
+  assertEqual(preview.result, 10n, "partial refresh preview result");
+  assertEqual(preview.checkedClaims, batchSize, "partial refresh preview checked claims");
+  assertEqual(preview.totalClaims, 2n, "partial refresh preview total claims");
+  assertEqual(committedBytes % 2n, 0n, "partial refresh committed bytes divide evenly");
+  assertEqual(preview.activeCoveredBytes, committedBytes / 2n, "partial refresh preview active covered bytes");
+  assertEqual(persisted.result, previous.result, "partial refresh persisted prior completed result");
+  assertEqual(persisted.lastEvidenceRefreshEpoch, previous.lastEvidenceRefreshEpoch, "partial refresh persisted prior completed epoch");
+  assertEqual(persisted.activeCoveredBytes, previous.activeCoveredBytes, "partial refresh persisted prior completed active covered bytes");
+  assertEqual(persisted.checkedClaims, preview.checkedClaims, "partial refresh persisted checked claims");
+  assertEqual(persisted.totalClaims, preview.totalClaims, "partial refresh persisted total claims");
+}
+
+function evidenceStatusFromResult(value: unknown): EvidenceStatus {
+  const result = value as { [index: number]: unknown };
+  return {
+    activeCoveredBytes: firstUint(result[0]),
+    lastEvidenceRefreshEpoch: firstUint(result[1]),
+    reasonCode: firstUint(result[2]),
+    result: firstUint(result[3]),
+    checkedClaims: firstUint(result[4]),
+    totalClaims: firstUint(result[5]),
+  };
 }
 
 export async function refreshEvidenceStatusWithBatchAndAssertActive(
@@ -340,10 +407,9 @@ async function settleRailAndAssertExact(
   const payment = await view.dealPayment(accepted.dealId);
   const beforeRail = await view.rail(rail.railId);
   const status = await view.evidenceStatus(accepted.dealId);
-  const refreshGrace = await view.evidenceRefreshGraceEpochs();
   const currentEpoch = evm.blockNumber();
   const earliestSettlement = beforeRail.settledUpTo + service.minSettlementEpochs;
-  const maxFreshTarget = status.lastEvidenceRefreshEpoch + refreshGrace;
+  const maxFreshTarget = status.lastEvidenceRefreshEpoch + EVIDENCE_REFRESH_GRACE_EPOCHS;
   const targetEpoch = currentEpoch > maxFreshTarget ? maxFreshTarget : currentEpoch;
   const expectedGross = settlementAmount(
     payment.pricePer32GiBPerMonth,
@@ -452,8 +518,12 @@ export async function expectSettlementBlockedWithoutPayout(
   console.log(`  Rail settled up to before: ${beforeRail.settledUpTo}`);
 
   const abi = expectedError === "NoAttestation" ? artifactAbis(context).sliScorer : artifactAbis(context).filecoinPay;
-  const error = await expectCustomError(
-    () => evm.simulate(context.config.addresses.filecoinPay, "settleRail(uint256,uint256)", [rail.railId, targetEpoch]),
+  const error = await expectRevertOnSend(
+    evm,
+    context.config.privateKeyTest,
+    context.config.addresses.filecoinPay,
+    "settleRail(uint256,uint256)",
+    [rail.railId, targetEpoch],
     abi,
     expectedError
   );

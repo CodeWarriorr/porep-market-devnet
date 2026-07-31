@@ -1,6 +1,8 @@
 import { assertEqual } from "../assertions.js";
 import { contracts } from "../contracts/views.js";
 import { Evm } from "../contracts/evm.js";
+import { artifactAbis } from "../contracts/abi.js";
+import { expectRevertOnSend } from "../contracts/reverts.js";
 import { billed32GiBUnits, settlementAmount } from "../expected.js";
 import { submitDataCapAllocation, generatePiece, importPieceAndWaitForProviderClaim, finishDataCapPostingAndAssertAllocated } from "../flows/datacap.js";
 import { proposeDealAndAssertAccepted } from "../flows/deal.js";
@@ -45,6 +47,40 @@ export async function runDealTermination(context: ScenarioContext): Promise<void
     assertEqual(capacityAfter.availableBytes, capacityBefore.availableBytes, "terminated provider available capacity");
     assertEqual(capacityAfter.committedBytes, capacityBefore.committedBytes, "terminated provider committed capacity");
     assertEqual(capacityAfter.pendingBytes, capacityBefore.pendingBytes, "terminated provider pending capacity");
+  });
+  await runStep(context, "prove repeated termination is rejected without state changes", async () => {
+    const evm = new Evm(context);
+    const capacityBeforeRetry = await view.providerCapacity(offer.provider);
+    const serviceBeforeRetry = await view.dealService(deal.dealId);
+    let revertAssertionError: unknown;
+    try {
+      const error = await expectRevertOnSend(
+        evm,
+        context.config.identityKeys.porepService,
+        context.config.addresses.poRepMarket,
+        "terminateDeal(uint256,uint8)",
+        [deal.dealId, 70n],
+        artifactAbis(context).poRepMarket,
+        "DealNotInExpectedState",
+      );
+      assertEqual(error.args[0], deal.dealId, "repeated termination deal id");
+      assertEqual(error.args[1], 70n, "repeated termination current deal state");
+      assertEqual(error.args[2], 30n, "repeated termination expected deal state");
+    } catch (error) {
+      revertAssertionError = error;
+    }
+    const capacityAfterRetry = await view.providerCapacity(offer.provider);
+    assertEqual(capacityAfterRetry.availableBytes, capacityBeforeRetry.availableBytes, "repeated termination available capacity");
+    assertEqual(capacityAfterRetry.committedBytes, capacityBeforeRetry.committedBytes, "repeated termination committed capacity");
+    assertEqual(capacityAfterRetry.pendingBytes, capacityBeforeRetry.pendingBytes, "repeated termination pending capacity");
+    assertEqual(
+      (await view.dealService(deal.dealId)).earlyTerminationEpoch,
+      serviceBeforeRetry.earlyTerminationEpoch,
+      "repeated termination early termination epoch",
+    );
+    if (revertAssertionError !== undefined) {
+      throw revertAssertionError;
+    }
   });
   await runStep(context, "settle pre-termination window capped at termination", async () => {
     const service = await view.dealService(deal.dealId);

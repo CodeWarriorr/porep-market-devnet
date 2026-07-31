@@ -17,6 +17,10 @@ function fixture(): string {
   const snapshotPath = join(projectRoot, ".runtime/contracts/targets/deployment-fixture/porep-market");
   mkdirSync(snapshotPath, { recursive: true });
   writeFileSync(
+    join(projectRoot, "versions.lock.yaml"),
+    `sources:\n  porep_market:\n    repository: https://example.test/porep-market.git\n    commit: ${"b".repeat(40)}\n`,
+  );
+  writeFileSync(
     join(projectRoot, ".runtime/deployments/active.json"),
     JSON.stringify({ schemaVersion: 1, deploymentId, revision: 0 }),
   );
@@ -85,6 +89,10 @@ test("loadConfig reads current deployment, status, and test identities", () => {
   assert.equal(config.deploymentId, "deployment-fixture");
   assert.equal(config.deploymentRevision, 0);
   assert.equal(config.provider, "t01004");
+  assert.equal(config.expectedPorepCommit, "b".repeat(40));
+  assert.equal(config.deploymentPorepCommit, "a".repeat(40));
+  assert.equal(config.deploymentTargetMode, "local");
+  assert.equal(config.deploymentTargetDirty, true);
   assert.equal(config.addresses.poRepMarket, address("1"));
   assert.equal(config.addresses.usdcToken, address("8"));
   assert.equal(config.addresses.notificationReceiver, address("9"));

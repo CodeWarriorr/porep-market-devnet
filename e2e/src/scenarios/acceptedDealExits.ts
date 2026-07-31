@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { assertEqual } from "../assertions.js";
 import { artifactAbis } from "../contracts/abi.js";
 import { Evm } from "../contracts/evm.js";
-import { expectCustomError } from "../contracts/reverts.js";
+import { expectRevertOnSend } from "../contracts/reverts.js";
 import { contracts } from "../contracts/views.js";
 import {
   createPreparedRailAndAssertRate,
@@ -65,13 +65,12 @@ export async function runAcceptedDealRejection(context: ScenarioContext): Promis
     const beforeDealCapacity = await view.dealCapacity(railDeal.dealId);
     const beforeProviderCapacity = await view.providerCapacity(offer.provider);
     const beforeRail = await view.rail(rail.railId);
-    const error = await expectCustomError(
-      () => evm.simulateWithPrivateKey(
-        context.config.identityKeys.deployer,
-        context.config.addresses.poRepMarket,
-        "rejectAcceptedDeal(uint256)",
-        [railDeal.dealId],
-      ),
+    const error = await expectRevertOnSend(
+      evm,
+      context.config.identityKeys.deployer,
+      context.config.addresses.poRepMarket,
+      "rejectAcceptedDeal(uint256)",
+      [railDeal.dealId],
       artifactAbis(context).poRepMarket,
       "DealNotRejectable",
     );
@@ -131,13 +130,12 @@ export async function runAcceptedDealExpiration(context: ScenarioContext): Promi
     const beforeDealCapacity = await view.dealCapacity(deal.dealId);
     const beforeProviderCapacity = await view.providerCapacity(offer.provider);
     const beforeRail = await view.rail(rail.railId);
-    const error = await expectCustomError(
-      () => evm.simulateWithPrivateKey(
-        context.config.identityKeys.porepService,
-        context.config.addresses.poRepMarket,
-        "terminateDeal(uint256,uint8)",
-        [deal.dealId, 60],
-      ),
+    const error = await expectRevertOnSend(
+      evm,
+      context.config.identityKeys.porepService,
+      context.config.addresses.poRepMarket,
+      "terminateDeal(uint256,uint8)",
+      [deal.dealId, 60],
       ["error EvidenceNotExpired(uint256 dealId)"],
       "EvidenceNotExpired",
     );

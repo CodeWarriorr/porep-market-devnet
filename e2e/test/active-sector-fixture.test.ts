@@ -133,6 +133,8 @@ function config(projectRoot: string): E2EConfig {
   return {
     cwd: projectRoot, projectRoot, envFile: "", rpcUrl: "http://localhost",
     expectedChainId: 31415926, expectedPorepCommit: "a".repeat(40),
+    deploymentPorepCommit: "a".repeat(40), deploymentTargetMode: "locked",
+    deploymentTargetDirty: false,
     deploymentId: "deployment-test", deploymentRevision: 0,
     deploymentRecordPath: join(projectRoot, "000.json"),
     privateKeyTest: key, privateKeySp: key,

@@ -4,7 +4,7 @@ import type { ScenarioContext } from "../runtime.js";
 import { envBigInt } from "../runtime.js";
 import { artifactAbis } from "../contracts/abi.js";
 import { Evm } from "../contracts/evm.js";
-import { expectCustomError } from "../contracts/reverts.js";
+import { expectRevertOnSend } from "../contracts/reverts.js";
 import { contracts } from "../contracts/views.js";
 import { requireDevnet } from "../devnet/docker.js";
 import type { AcceptedDeal } from "./deal.js";
@@ -98,8 +98,9 @@ export async function activateEvidenceAndAssertDealActive(
   console.log(`  Deal: ${accepted.dealId}`);
   console.log(`  Rail: ${rail.railId}`);
 
+  await evm.ensureEvmActor(context.config.privateKeySp);
   const txHash = await evm.sendWithPrivateKey(
-    context.config.identityKeys.porepService,
+    context.config.privateKeySp,
     context.config.addresses.poRepMarket,
     "activateEvidence(uint256,bytes)",
     [accepted.dealId, "0x"],
@@ -200,13 +201,12 @@ export async function expectDoubleActivationToFail(
   assertEqual(beforeDeal.state, 30n, `V2 deal ${active.dealId} starts ACTIVE`);
   assertEqual(beforeCapacity.committedBytes, active.committedBytes, "committedBytes before double activation");
 
-  const error = await expectCustomError(
-    () => evm.simulateWithPrivateKey(
-      context.config.identityKeys.porepService,
-      context.config.addresses.poRepMarket,
-      "activateEvidence(uint256,bytes)",
-      [active.dealId, "0x"],
-    ),
+  const error = await expectRevertOnSend(
+    evm,
+    context.config.identityKeys.porepService,
+    context.config.addresses.poRepMarket,
+    "activateEvidence(uint256,bytes)",
+    [active.dealId, "0x"],
     artifactAbis(context).poRepMarket,
     "DealNotInExpectedState"
   );

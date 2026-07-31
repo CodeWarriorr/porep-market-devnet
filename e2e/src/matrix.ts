@@ -10,9 +10,15 @@ import { join } from "node:path";
 import { loadConfig } from "./config.js";
 import {
   collectSkippedCapabilities,
+  matrixFinalResult,
+  reconcileProviderCapacity,
   summarizeMatrixResults,
   type MatrixReportResult,
+  type ProviderCapacityReconciliation,
+  unavailableProviderCapacityReconciliation,
 } from "./matrix-report.js";
+import { contracts } from "./contracts/views.js";
+import { createScenarioContext } from "./runtime.js";
 import {
   resolveScenario,
   resolveSuite,
@@ -39,6 +45,7 @@ const matrixDir = join(
 );
 const reportPath = join(matrixDir, "matrix-report.json");
 const results: MatrixResult[] = [];
+let reconciliation: ProviderCapacityReconciliation | null = null;
 
 mkdirSync(matrixDir, { recursive: true });
 
@@ -49,6 +56,11 @@ for (const name of selectedScenarios) {
   if (failFast && result.result === "failed") break;
 }
 
+try {
+  reconciliation = await reconcileProviderCapacityFromChain();
+} catch (error) {
+  reconciliation = unavailableProviderCapacityReconciliation(error);
+}
 const failed = results.filter((result) => result.result === "failed");
 const summary = summarizeMatrixResults(results);
 writeReport(new Date().toISOString());
@@ -59,6 +71,14 @@ console.log(
 console.log(
   `Infrastructure scenarios: ${summary.infrastructure.passed}/${summary.infrastructure.total} passed`,
 );
+console.log(
+  `Provider capacity reconciliation: ${reconciliation.result} `
+    + `(pending ${reconciliation.pending.actualBytes}/${reconciliation.pending.expectedBytes}, `
+    + `committed ${reconciliation.committed.actualBytes}/${reconciliation.committed.expectedBytes})`,
+);
+if (reconciliation.error) {
+  console.log(`Provider capacity reconciliation error: ${reconciliation.error}`);
+}
 console.log(`Matrix result (all scenarios): ${results.length - failed.length}/${results.length} passed`);
 if (summary.skippedCapabilities.length > 0) {
   console.log("Skipped capabilities:");
@@ -67,8 +87,43 @@ if (summary.skippedCapabilities.length > 0) {
   }
 }
 
-if (failed.length > 0) {
+if (failed.length > 0 || reconciliation.result === "failed") {
   process.exitCode = 1;
+}
+
+async function reconcileProviderCapacityFromChain(): Promise<ProviderCapacityReconciliation> {
+  const view = contracts(createScenarioContext(config, matrixDir, "matrix-reconciliation"));
+  const provider = BigInt(config.provider.slice(2));
+  const [acceptedIds, activeIds, providerCapacity] = await Promise.all([
+    dealIdsByState(view, 20n),
+    dealIdsByState(view, 30n),
+    view.providerCapacity(provider),
+  ]);
+  const [accepted, active] = await Promise.all([
+    Promise.all(acceptedIds.map(async (dealId) => ({
+      dealId,
+      reservedBytes: (await view.dealCapacity(dealId)).reservedBytes,
+    }))),
+    Promise.all(activeIds.map(async (dealId) => ({
+      dealId,
+      committedBytes: (await view.dealCapacity(dealId)).committedBytes,
+    }))),
+  ]);
+  return reconcileProviderCapacity({ provider: providerCapacity, accepted, active });
+}
+
+async function dealIdsByState(
+  view: ReturnType<typeof contracts>,
+  state: bigint,
+): Promise<bigint[]> {
+  const pageSize = 100n;
+  const first = await view.dealIdsByState(state, 0n, pageSize);
+  const dealIds = [...first.dealIds];
+  for (let offset = BigInt(dealIds.length); offset < first.total; offset += pageSize) {
+    const page = await view.dealIdsByState(state, offset, pageSize);
+    dealIds.push(...page.dealIds);
+  }
+  return dealIds;
 }
 
 async function runScenario(name: string, index: number): Promise<MatrixResult> {
@@ -215,12 +270,13 @@ function writeReport(completedAt?: string): void {
       matrixDir,
       reportPath,
       result: completedAt
-        ? results.every((entry) => entry.result === "passed")
-          ? "passed"
-          : "failed"
+        ? matrixFinalResult(results, reconciliation ?? unavailableProviderCapacityReconciliation(
+          "reconciliation did not complete",
+        ))
         : "running",
       behavior: summary.behavior,
       infrastructure: summary.infrastructure,
+      reconciliation,
       skippedCapabilities: summary.skippedCapabilities,
       scenarios: results,
     }, null, 2)}\n`,

@@ -33,6 +33,9 @@ export type E2EConfig = {
   rpcUrl: string;
   expectedChainId: number;
   expectedPorepCommit: string;
+  deploymentPorepCommit: string;
+  deploymentTargetMode: "locked" | "local";
+  deploymentTargetDirty: boolean;
   deploymentId: string;
   deploymentRevision: number;
   deploymentRecordPath: string;
@@ -66,7 +69,9 @@ type Deployment = {
     provider?: unknown;
   };
   target?: {
+    mode?: unknown;
     commit?: unknown;
+    dirty?: unknown;
     snapshotPath?: unknown;
   };
   identities?: Record<string, unknown>;
@@ -149,9 +154,17 @@ export function loadConfig(input: LoadConfigInput = {}): E2EConfig {
 
   const contractAddress = (name: string): string =>
     requiredAddress(deployment.contracts?.[name]?.address, `contract: ${name}`);
-  const expectedPorepCommit = requiredCommit(
+  const expectedPorepCommit = readPinnedPorepCommit(
+    join(projectRoot, "versions.lock.yaml"),
+  );
+  const deploymentPorepCommit = requiredCommit(
     deployment.target?.commit,
     "PoRep Market source",
+  );
+  const deploymentTargetMode = requiredTargetMode(deployment.target?.mode);
+  const deploymentTargetDirty = requiredBoolean(
+    deployment.target?.dirty,
+    "PoRep Market target dirty state",
   );
   const porepSourceDir = requiredAbsolutePath(
     deployment.target?.snapshotPath,
@@ -165,6 +178,9 @@ export function loadConfig(input: LoadConfigInput = {}): E2EConfig {
     rpcUrl: "http://127.0.0.1:2234/rpc/v1",
     expectedChainId: DEVNET_CHAIN_ID,
     expectedPorepCommit,
+    deploymentPorepCommit,
+    deploymentTargetMode,
+    deploymentTargetDirty,
     deploymentId,
     deploymentRevision,
     deploymentRecordPath,
@@ -231,6 +247,44 @@ function requiredCommit(value: unknown, label: string): string {
     throw new Error(`missing ${label}`);
   }
   return value;
+}
+
+function requiredTargetMode(value: unknown): "locked" | "local" {
+  if (value !== "locked" && value !== "local") {
+    throw new Error("invalid PoRep Market target mode");
+  }
+  return value;
+}
+
+function requiredBoolean(value: unknown, label: string): boolean {
+  if (typeof value !== "boolean") throw new Error(`invalid ${label}`);
+  return value;
+}
+
+function readPinnedPorepCommit(path: string): string {
+  let lines: string[];
+  try {
+    lines = readFileSync(path, "utf8").split(/\r?\n/);
+  } catch {
+    throw new Error(`version lock is missing or invalid: ${path}`);
+  }
+  const sections = lines.flatMap((line, index) =>
+    /^  porep_market:\s*$/.test(line) ? [index] : []
+  );
+  if (sections.length !== 1) {
+    throw new Error(`porep_market lock entry is missing or invalid: ${path}`);
+  }
+  const commits: string[] = [];
+  for (let index = sections[0]! + 1; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    if (/^  \S/.test(line)) break;
+    const match = /^    commit:\s*([0-9a-f]{40})\s*$/.exec(line);
+    if (match) commits.push(match[1]!);
+  }
+  if (commits.length !== 1) {
+    throw new Error(`porep_market lock commit is missing or invalid: ${path}`);
+  }
+  return commits[0]!;
 }
 
 function requiredAbsolutePath(value: unknown, label: string): string {

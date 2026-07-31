@@ -12,7 +12,11 @@ import {
   writeFailureDiagnostics,
   writeRunSummary,
 } from "./runtime.js";
-import { resolveScenario } from "./scenarios/registry.js";
+import {
+  assertScenarioPrerequisites,
+  consumeScenarioFixtures,
+  resolveScenario,
+} from "./scenarios/registry.js";
 
 const scenario = process.argv[2] ?? "preflight";
 let context: ScenarioContext | undefined;
@@ -44,7 +48,14 @@ try {
   process.stdout.write(buildPreflightSummary(facts));
 
   if (scenario !== "preflight") {
-    await resolveScenario(scenario).run(context);
+    const definition = resolveScenario(scenario);
+    assertScenarioPrerequisites(
+      scenario,
+      definition,
+      config.deploymentRecordPath,
+    );
+    await consumeScenarioFixtures(context, definition);
+    await definition.run(context);
   }
 } catch (error) {
   failure = error;

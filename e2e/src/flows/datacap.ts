@@ -1,15 +1,16 @@
 import { join } from "node:path";
+import { Interface, type InterfaceAbi } from "ethers";
 import { assertEqual } from "../assertions.js";
 import type { ScenarioContext } from "../runtime.js";
 import { artifactAbis } from "../contracts/abi.js";
-import { Evm } from "../contracts/evm.js";
-import { expectCustomError } from "../contracts/reverts.js";
+import { Evm, extractRevertData } from "../contracts/evm.js";
+import { ContractRevertError, assertCustomError, expectRevertOnSend } from "../contracts/reverts.js";
 import { contracts } from "../contracts/views.js";
 import { generatePieceAndAssertCommp, type PieceInfo } from "../devnet/piece.js";
 import { ensureCurioReady, submitCurioOnboarding } from "../devnet/curio.js";
 import { waitForProviderClaim } from "../devnet/lotus.js";
 import { requireDevnet } from "../devnet/docker.js";
-import { runRequired } from "../shell.js";
+import { run, runRequired } from "../shell.js";
 import type { AcceptedDeal } from "./deal.js";
 
 export type DataCapAllocation = {
@@ -29,6 +30,115 @@ export type MultipleDataCapAllocations = {
   pieces: PieceInfo[];
   totalPieceSize: bigint;
 };
+
+export type DataCapGuardState = {
+  dealId: bigint;
+  dealClient: string;
+  dealProvider: bigint;
+  dealOfferId: bigint;
+  dealState: bigint;
+  dealEvidenceAdapter: string;
+  dealType: bigint;
+  dealValidator: string;
+  railId: bigint;
+  dealProposedAtEpoch: bigint;
+  railToken: string;
+  railFrom: string;
+  railTo: string;
+  railOperator: string;
+  railValidator: string;
+  railPaymentRate: bigint;
+  railSettledUpTo: bigint;
+  railEndEpoch: bigint;
+  railCommissionRateBps: bigint;
+  railServiceFeeRecipient: string;
+  allocationIds: bigint[];
+  claimIds: bigint[];
+  allocationStatus: bigint;
+  postingFinished: boolean;
+  allocatedBytes: bigint;
+  operational: boolean;
+  providerAvailableBytes: bigint;
+  providerCommittedBytes: bigint;
+  providerPendingBytes: bigint;
+};
+
+export async function dataCapGuardState(
+  context: ScenarioContext,
+  dealId: bigint,
+): Promise<DataCapGuardState> {
+  const view = contracts(context);
+  const deal = await view.deal(dealId);
+  const rail = await view.rail(deal.railId);
+  const provider = await view.providerCapacity(deal.provider);
+  return {
+    dealId: deal.id,
+    dealClient: deal.client,
+    dealProvider: deal.provider,
+    dealOfferId: deal.offerId,
+    dealState: deal.state,
+    dealEvidenceAdapter: deal.evidenceAdapter,
+    dealType: deal.dealType,
+    dealValidator: deal.validator,
+    railId: deal.railId,
+    dealProposedAtEpoch: deal.proposedAtEpoch,
+    railToken: rail.token,
+    railFrom: rail.from,
+    railTo: rail.to,
+    railOperator: rail.operator,
+    railValidator: rail.validator,
+    railPaymentRate: rail.paymentRate,
+    railSettledUpTo: rail.settledUpTo,
+    railEndEpoch: rail.endEpoch,
+    railCommissionRateBps: rail.commissionRateBps,
+    railServiceFeeRecipient: rail.serviceFeeRecipient,
+    allocationIds: await view.allocationIds(dealId),
+    claimIds: await view.claimIds(dealId),
+    allocationStatus: await view.dealAllocationStatus(dealId),
+    postingFinished: await view.dataCapPostingFinished(dealId),
+    allocatedBytes: await view.dataCapAllocatedBytes(dealId),
+    operational: await view.dataCapOperational(),
+    providerAvailableBytes: provider.availableBytes,
+    providerCommittedBytes: provider.committedBytes,
+    providerPendingBytes: provider.pendingBytes,
+  };
+}
+
+export function assertDataCapGuardStateUnchanged(
+  actual: DataCapGuardState,
+  expected: DataCapGuardState,
+  label: string,
+): void {
+  assertEqual(actual.dealId, expected.dealId, `${label} deal id`);
+  assertEqual(actual.dealClient, expected.dealClient, `${label} deal client`);
+  assertEqual(actual.dealProvider, expected.dealProvider, `${label} deal provider`);
+  assertEqual(actual.dealOfferId, expected.dealOfferId, `${label} deal offer id`);
+  assertEqual(actual.dealState, expected.dealState, `${label} deal state`);
+  assertEqual(actual.dealEvidenceAdapter, expected.dealEvidenceAdapter, `${label} deal evidence adapter`);
+  assertEqual(actual.dealType, expected.dealType, `${label} deal type`);
+  assertEqual(actual.dealValidator, expected.dealValidator, `${label} deal validator`);
+  assertEqual(actual.railId, expected.railId, `${label} rail id`);
+  assertEqual(actual.dealProposedAtEpoch, expected.dealProposedAtEpoch, `${label} deal proposed at epoch`);
+  assertEqual(actual.railToken, expected.railToken, `${label} rail token`);
+  assertEqual(actual.railFrom, expected.railFrom, `${label} rail from`);
+  assertEqual(actual.railTo, expected.railTo, `${label} rail to`);
+  assertEqual(actual.railOperator, expected.railOperator, `${label} rail operator`);
+  assertEqual(actual.railValidator, expected.railValidator, `${label} rail validator`);
+  assertEqual(actual.railPaymentRate, expected.railPaymentRate, `${label} rail payment rate`);
+  assertEqual(actual.railSettledUpTo, expected.railSettledUpTo, `${label} rail settled up to`);
+  assertEqual(actual.railEndEpoch, expected.railEndEpoch, `${label} rail end epoch`);
+  assertEqual(actual.railCommissionRateBps, expected.railCommissionRateBps, `${label} rail commission rate bps`);
+  assertEqual(actual.railServiceFeeRecipient, expected.railServiceFeeRecipient, `${label} rail service fee recipient`);
+  assertEqual(actual.allocationIds.join(","), expected.allocationIds.join(","), `${label} allocation ids`);
+  assertEqual(actual.claimIds.join(","), expected.claimIds.join(","), `${label} claim ids`);
+  assertEqual(actual.allocationStatus, expected.allocationStatus, `${label} allocation status`);
+  assertEqual(actual.postingFinished, expected.postingFinished, `${label} posting finished`);
+  assertEqual(actual.allocatedBytes, expected.allocatedBytes, `${label} allocated bytes`);
+  assertEqual(actual.operational, expected.operational, `${label} adapter operational`);
+  assertEqual(actual.providerAvailableBytes, expected.providerAvailableBytes, `${label} provider available bytes`);
+  assertEqual(actual.providerCommittedBytes, expected.providerCommittedBytes, `${label} provider committed bytes`);
+  assertEqual(actual.providerPendingBytes, expected.providerPendingBytes, `${label} provider pending bytes`);
+}
 
 export function generatePiece(context: ScenarioContext): PieceInfo {
   requireDevnet(context);
@@ -53,7 +163,7 @@ export async function submitDataCapAllocation(
   console.log(`  Adapter:  ${context.config.addresses.dataCapEvidenceAdapter}`);
 
   const beforeAllocationIds = await view.allocationIds(accepted.dealId);
-  const calldata = computeDataCapBatchCalldata(context, {
+  const calldata = dataCapBatchCalldata(context, {
     provider: deal.provider,
     pieceSize: piece.pieceSize,
     dealId: accepted.dealId,
@@ -140,15 +250,19 @@ export async function expectDataCapAllocationWithoutPreparedRailToFail(
   console.log(`  Adapter:  ${context.config.addresses.dataCapEvidenceAdapter}`);
   console.log("  Expected boundary: DataCapEvidenceAdapter rejects deal snapshots with railId=0");
 
-  const calldata = computeDataCapBatchCalldata(context, {
+  const calldata = dataCapBatchCalldata(context, {
     provider: deal.provider,
     pieceSize: piece.pieceSize,
     dealId: accepted.dealId,
     pieceCidHex: piece.pieceCidHex
   });
 
-  const error = await expectCustomError(
-    () => evm.simulate(context.config.addresses.dataCapEvidenceAdapter, calldata),
+  const error = await expectRevertOnSend(
+    evm,
+    context.config.privateKeyTest,
+    context.config.addresses.dataCapEvidenceAdapter,
+    calldata,
+    [],
     artifactAbis(context).dataCapEvidenceAdapter,
     "InvalidRailId"
   );
@@ -220,6 +334,136 @@ export async function finishDataCapPostingAndAssertAllocated(
   return { txHash };
 }
 
+export async function expectDataCapPostingOrderGuards(
+  context: ScenarioContext,
+  accepted: AcceptedDeal,
+  piece: PieceInfo,
+): Promise<void> {
+  requireDevnet(context);
+  const evm = new Evm(context);
+  const view = contracts(context);
+  const dataCapAbi = artifactAbis(context).dataCapEvidenceAdapter;
+  const evidenceData = evm.abiEncode("f(uint256)", 1n);
+  const calldata = dataCapBatchCalldata(context, {
+    provider: accepted.deal.provider,
+    pieceSize: piece.pieceSize,
+    dealId: accepted.dealId,
+    pieceCidHex: piece.pieceCidHex,
+  });
+
+  const beforeEvidence = await dataCapGuardState(context, accepted.dealId);
+  const postingNotFinished = await expectRevertOnSend(
+    evm,
+    context.config.identityKeys.porepService,
+    context.config.addresses.poRepMarket,
+    "submitEvidenceBatch(uint256,bytes)",
+    [accepted.dealId, evidenceData],
+    dataCapAbi,
+    "PostingNotFinished",
+  );
+  assertEqual(postingNotFinished.args.length, 0, "PostingNotFinished error arguments");
+  assertDataCapGuardStateUnchanged(
+    await dataCapGuardState(context, accepted.dealId),
+    beforeEvidence,
+    "state after PostingNotFinished",
+  );
+
+  await finishDataCapPostingAndAssertAllocated(context, accepted);
+
+  const beforeAlreadyFinished = await dataCapGuardState(context, accepted.dealId);
+  const postingAlreadyFinished = await expectRevertOnSend(
+    evm,
+    context.config.privateKeyTest,
+    context.config.addresses.dataCapEvidenceAdapter,
+    calldata,
+    [],
+    dataCapAbi,
+    "PostingAlreadyFinished",
+  );
+  assertEqual(postingAlreadyFinished.args.length, 0, "PostingAlreadyFinished error arguments");
+  assertDataCapGuardStateUnchanged(
+    await dataCapGuardState(context, accepted.dealId),
+    beforeAlreadyFinished,
+    "state after PostingAlreadyFinished",
+  );
+
+  const beforeMarketRefresh = await dataCapGuardState(context, accepted.dealId);
+  const marketOrder = await expectRevertOnSend(
+    evm,
+    context.config.identityKeys.porepService,
+    context.config.addresses.poRepMarket,
+    "refreshEvidenceStatus(uint256,bytes)",
+    [accepted.dealId, evidenceData],
+    artifactAbis(context).poRepMarket,
+    "DealNotInExpectedState",
+  );
+  assertEqual(marketOrder.args[0], accepted.dealId, "market refresh guard deal id");
+  assertEqual(marketOrder.args[1], 20n, "market refresh guard current state");
+  assertEqual(marketOrder.args[2], 30n, "market refresh guard expected state");
+  assertDataCapGuardStateUnchanged(
+    await dataCapGuardState(context, accepted.dealId),
+    beforeMarketRefresh,
+    "state after market refresh ordering guard",
+  );
+
+  const beforeAdapterRefresh = await dataCapGuardState(context, accepted.dealId);
+  try {
+    await simulateAdapterRefreshAsPoRepMarket(context, accepted, evidenceData);
+    throw new Error("expected InvalidAllocationState, but the adapter probe succeeded");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (isFvmContractSenderPrevalidation(message)) {
+      context.state.set(
+        "DATACAP_INVALID_ALLOCATION_STATE_PROBE",
+        "skipped: FVM eth_call rejects PoRepMarket as SysErrSenderInvalid(1) before adapter dispatch",
+      );
+    } else {
+      const invalidAllocationState = assertCustomError(
+        error,
+        dataCapAbi,
+        "InvalidAllocationState",
+      );
+      assertEqual(invalidAllocationState.args.length, 0, "InvalidAllocationState error arguments");
+    }
+  }
+  assertDataCapGuardStateUnchanged(
+    await dataCapGuardState(context, accepted.dealId),
+    beforeAdapterRefresh,
+    "state after adapter InvalidAllocationState probe",
+  );
+}
+
+export function isFvmContractSenderPrevalidation(output: string): boolean {
+  return /SysErrSenderInvalid\(1\)/.test(output)
+    && /\bdata\s*[:=]?\s*["']?0x["']?(?:\s|$)/.test(output);
+}
+
+async function simulateAdapterRefreshAsPoRepMarket(
+  context: ScenarioContext,
+  accepted: AcceptedDeal,
+  evidenceData: string,
+): Promise<void> {
+  const activationContext = `(${accepted.dealId},${accepted.requestedSizeBytes},${accepted.deal.client},${accepted.durationEpochs},0,${accepted.deal.provider})`;
+  const result = run("cast", [
+    "call",
+    "--gas-limit",
+    "9000000000",
+    "--rpc-url",
+    context.config.rpcUrl,
+    "--from",
+    context.config.addresses.poRepMarket,
+    context.config.addresses.dataCapEvidenceAdapter,
+    "refreshEvidenceStatus((uint256,uint256,address,uint64,uint16,uint64),bytes)",
+    activationContext,
+    evidenceData,
+  ], context.projectRoot);
+  if (result.status === 0) return;
+  const output = result.stderr || result.stdout;
+  const revertData = extractRevertData(output);
+  if (revertData) throw new ContractRevertError(revertData);
+  throw new Error(`${result.command} failed with ${result.status}\n${output}`);
+}
+
 export async function submitEvidenceAllocationBatchesAndAssertClaimCoverage(
   context: ScenarioContext,
   accepted: AcceptedDeal,
@@ -269,7 +513,20 @@ export async function submitEvidenceAllocationBatchesAndAssertClaimCoverage(
   return { txHashes, claimIds };
 }
 
-function computeDataCapBatchCalldata(
+export function replaceDataCapBatchOperatorData(
+  abi: InterfaceAbi,
+  validCalldata: string,
+  operatorData: string,
+): string {
+  const iface = new Interface(abi);
+  const decoded = iface.decodeFunctionData("submitDataCapBatch", validCalldata);
+  return iface.encodeFunctionData("submitDataCapBatch", [
+    [decoded[0][0], decoded[0][1], operatorData],
+    decoded[1],
+  ]);
+}
+
+export function dataCapBatchCalldata(
   context: ScenarioContext,
   input: { provider: bigint; pieceSize: bigint; dealId: bigint; pieceCidHex: string }
 ): string {

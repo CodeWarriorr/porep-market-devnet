@@ -1,9 +1,10 @@
 import { assertEqual } from "../assertions.js";
 import { readFileSync } from "node:fs";
+import { id as keccakText } from "ethers";
 import type { ScenarioContext } from "../runtime.js";
 import { Evm, lower } from "../contracts/evm.js";
 import { artifactAbis } from "../contracts/abi.js";
-import { expectCustomError } from "../contracts/reverts.js";
+import { expectRevertOnSend } from "../contracts/reverts.js";
 import { contracts } from "../contracts/views.js";
 import { requireDevnet } from "../devnet/docker.js";
 import type { AcceptedDeal } from "./deal.js";
@@ -27,11 +28,15 @@ export async function expectUnauthorizedSettlementCadenceUpdateToFail(
   console.log(`  Caller: ${caller}`);
   console.log(`  Existing min epochs: ${before.minSettlementEpochs}`);
 
-  const error = await expectCustomError(
-    () => evm.simulateWithPrivateKey(context.config.privateKeySp, context.config.addresses.poRepMarket, "setMinEpochsBetweenSettlements(uint256,uint256)", [
+  const error = await expectRevertOnSend(
+    evm,
+    context.config.privateKeySp,
+    context.config.addresses.poRepMarket,
+    "setMinEpochsBetweenSettlements(uint256,uint256)",
+    [
       accepted.dealId,
       before.minSettlementEpochs + 1n
-    ]),
+    ],
     artifactAbis(context).poRepMarket,
     "AccessControlUnauthorizedAccount"
   );
@@ -59,11 +64,15 @@ export async function expectUnauthorizedSliUpdateToFail(
   console.log(`  Caller: ${caller}`);
   console.log(`  Existing SLI last update: ${before.lastUpdate}`);
 
-  const error = await expectCustomError(
-    () => evm.simulateWithPrivateKey(context.config.privateKeySp, context.config.addresses.sliOracle, "setSLI(uint256,(uint16,uint64,uint16,uint8))", [
+  const error = await expectRevertOnSend(
+    evm,
+    context.config.privateKeySp,
+    context.config.addresses.sliOracle,
+    "setSLI(uint256,(uint16,uint64,uint16,uint8))",
+    [
       accepted.dealId,
       "(10000,1048576,100,100)"
-    ]),
+    ],
     artifactAbis(context).sliOracle,
     "AccessControlUnauthorizedAccount"
   );
@@ -94,13 +103,12 @@ export async function expectUnauthorizedUpgradeToFail(
 
   console.log("=== Expect unauthorized PoRep Market upgrade to fail ===");
   console.log(`  Caller: ${caller}`);
-  const error = await expectCustomError(
-    () => evm.simulateWithPrivateKey(
-      context.config.privateKeySp,
-      context.config.addresses.poRepMarket,
-      "upgradeToAndCall(address,bytes)",
-      [implementation, "0x"],
-    ),
+  const error = await expectRevertOnSend(
+    evm,
+    context.config.privateKeySp,
+    context.config.addresses.poRepMarket,
+    "upgradeToAndCall(address,bytes)",
+    [implementation, "0x"],
     artifactAbis(context).poRepMarket,
     "AccessControlUnauthorizedAccount",
   );
@@ -110,42 +118,86 @@ export async function expectUnauthorizedUpgradeToFail(
   console.log(`  Unauthorized upgrade failed with ${error.name}`);
 }
 
-export async function expectUnauthorizedEvidenceRefreshToFail(
+export async function expectUnauthorizedProviderCapacityWritesToFail(
   context: ScenarioContext,
-  accepted: AcceptedDeal
+  accepted: AcceptedDeal,
+): Promise<void> {
+  requireDevnet(context);
+  const evm = new Evm(context);
+  const view = contracts(context);
+  const caller = evm.addressForPrivateKey(context.config.privateKeySp);
+  const marketRole = keccakText("MARKET_ROLE");
+  const manifest = await view.dealData(accepted.dealId);
+  await evm.ensureEvmActor(context.config.privateKeySp);
+  const before = await view.providerCapacity(accepted.deal.provider);
+
+  const calls = [
+    {
+      label: "commitCapacity",
+      signature: "commitCapacity(uint64,uint256,uint256)",
+      args: [accepted.deal.provider, accepted.requestedSizeBytes, accepted.requestedSizeBytes],
+    },
+    {
+      label: "releaseCapacity",
+      signature: "releaseCapacity(uint64,uint256,bytes32)",
+      args: [accepted.deal.provider, 1n, manifest.manifestHash],
+    },
+    {
+      label: "releasePendingCapacity",
+      signature: "releasePendingCapacity(uint64,uint256,bytes32)",
+      args: [accepted.deal.provider, 1n, manifest.manifestHash],
+    },
+  ] as const;
+
+  for (const call of calls) {
+    const error = await expectRevertOnSend(
+      evm,
+      context.config.privateKeySp,
+      context.config.addresses.spRegistry,
+      call.signature,
+      [...call.args],
+      artifactAbis(context).spRegistry,
+      "AccessControlUnauthorizedAccount",
+    );
+    assertEqual(lower(error.args[0]), lower(caller), `${call.label} unauthorized caller`);
+    assertEqual(lower(error.args[1]), lower(marketRole), `${call.label} required role`);
+    assertProviderCapacityEqual(
+      await view.providerCapacity(accepted.deal.provider),
+      before,
+      `provider capacity after unauthorized ${call.label}`,
+    );
+  }
+}
+
+export async function expectDirectDealSettlementValidationToFail(
+  context: ScenarioContext,
+  accepted: AcceptedDeal,
 ): Promise<void> {
   requireDevnet(context);
   const evm = new Evm(context);
   const view = contracts(context);
   const caller = evm.addressForPrivateKey(context.config.privateKeySp);
   await evm.ensureEvmActor(context.config.privateKeySp);
-  const before = await view.evidenceStatus(accepted.dealId);
-  const evidenceData = evm.abiEncode("f(uint256)", 1n);
+  const before = await view.dealService(accepted.dealId);
 
-  console.log("=== Expect unauthorized market evidence refresh to fail ===");
-  console.log(`  Deal: ${accepted.dealId}`);
-  console.log(`  Caller: ${caller}`);
-  console.log(`  Evidence before: result=${before.result}, checked=${before.checkedClaims}/${before.totalClaims}, bytes=${before.activeCoveredBytes}`);
-
-  const error = await expectCustomError(
-    () => evm.simulateWithPrivateKey(context.config.privateKeySp, context.config.addresses.poRepMarket, "refreshEvidenceStatus(uint256,bytes)", [
-      accepted.dealId,
-      evidenceData
-    ]),
+  const error = await expectRevertOnSend(
+    evm,
+    context.config.privateKeySp,
+    context.config.addresses.poRepMarket,
+    "validateDealSettlement(uint256,uint256,uint256)",
+    [accepted.dealId, 0n, 1n],
     artifactAbis(context).poRepMarket,
-    "AccessControlUnauthorizedAccount"
+    "CallerIsNotValidator",
   );
-  assertEqual(lower(error.args[0]), lower(caller), "unauthorized evidence refresh caller");
-  console.log(`  Unauthorized market refresh failed with ${error.name}`);
+  assertEqual(error.args[0], accepted.dealId, "settlement validation guard deal id");
+  assertEqual(lower(error.args[1]), lower(caller), "settlement validation guard caller");
 
-  const after = await view.evidenceStatus(accepted.dealId);
-  assertEqual(after.activeCoveredBytes, before.activeCoveredBytes, "activeCoveredBytes after unauthorized market refresh");
-  assertEqual(after.lastEvidenceRefreshEpoch, before.lastEvidenceRefreshEpoch, "lastEvidenceRefreshEpoch after unauthorized market refresh");
-  assertEqual(after.reasonCode, before.reasonCode, "reasonCode after unauthorized market refresh");
-  assertEqual(after.result, before.result, "result after unauthorized market refresh");
-  assertEqual(after.checkedClaims, before.checkedClaims, "checkedClaims after unauthorized market refresh");
-  assertEqual(after.totalClaims, before.totalClaims, "totalClaims after unauthorized market refresh");
-  console.log("Expected failure observed for: unauthorized market evidence refresh");
+  const after = await view.dealService(accepted.dealId);
+  assertEqual(after.startEpoch, before.startEpoch, "service start after direct settlement validation");
+  assertEqual(after.endEpoch, before.endEpoch, "service end after direct settlement validation");
+  assertEqual(after.earlyTerminationEpoch, before.earlyTerminationEpoch, "early termination after direct settlement validation");
+  assertEqual(after.minSettlementEpochs, before.minSettlementEpochs, "settlement cadence after direct settlement validation");
+  assertEqual(after.lastSettledEpoch, before.lastSettledEpoch, "settlement cursor after direct settlement validation");
 }
 
 export async function expectDirectDataCapAdapterRefreshToFail(
@@ -166,12 +218,12 @@ export async function expectDirectDataCapAdapterRefreshToFail(
   console.log(`  Caller: ${caller}`);
   console.log("  Expected boundary: DataCapEvidenceAdapter only accepts refresh calls from PoRepMarket");
 
-  const error = await expectCustomError(
-    () => evm.simulate(
-      context.config.addresses.dataCapEvidenceAdapter,
-      "refreshEvidenceStatus((uint256,uint256,address,uint64,uint16,uint64),bytes)",
-      [activationContext, evidenceData]
-    ),
+  const error = await expectRevertOnSend(
+    evm,
+    context.config.privateKeyTest,
+    context.config.addresses.dataCapEvidenceAdapter,
+    "refreshEvidenceStatus((uint256,uint256,address,uint64,uint16,uint64),bytes)",
+    [activationContext, evidenceData],
     artifactAbis(context).dataCapEvidenceAdapter,
     "CallerIsNotPoRepMarket"
   );
@@ -185,4 +237,14 @@ export async function expectDirectDataCapAdapterRefreshToFail(
   assertEqual(after.checkedClaims, before.checkedClaims, "checkedClaims after direct adapter refresh attempt");
   assertEqual(after.totalClaims, before.totalClaims, "totalClaims after direct adapter refresh attempt");
   console.log("Expected failure observed for: direct DataCap adapter refresh");
+}
+
+function assertProviderCapacityEqual(
+  actual: { availableBytes: bigint; committedBytes: bigint; pendingBytes: bigint },
+  expected: { availableBytes: bigint; committedBytes: bigint; pendingBytes: bigint },
+  label: string,
+): void {
+  assertEqual(actual.availableBytes, expected.availableBytes, `${label} available bytes`);
+  assertEqual(actual.committedBytes, expected.committedBytes, `${label} committed bytes`);
+  assertEqual(actual.pendingBytes, expected.pendingBytes, `${label} pending bytes`);
 }
