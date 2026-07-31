@@ -135,34 +135,49 @@ export ORACLE="${identity_addresses[oracle]}"
 export POREP_SERVICE="${identity_addresses[porepService]}"
 export OPERATOR_ADDR="${identity_addresses[operator]}"
 export META_ALLOCATOR="${meta_allocator}"
+porep_pending_dir="${porep_root}/.deployment/devnet"
+porep_pending="${porep_pending_dir}/pending-deploy.json"
+mkdir -p "${porep_pending_dir}"
+jq -n '{result:{}}' >"${porep_pending}"
 (
   cd "${porep_root}"
-  forge script script/Deploy.s.sol --gas-estimate-multiplier 100000 \
+  forge build --build-info --extra-output storageLayout >>"${log_file}" 2>&1
+  shopt -s nullglob
+  build_info_files=(out/build-info/*.json)
+  [[ "${#build_info_files[@]}" == 1 ]] || {
+    printf 'PoRep build must produce exactly one build-info file\n' >&2
+    exit 1
+  }
+  export BUILD_INFO_SHA256="0x$(sha256sum "${build_info_files[0]}" | awk '{print $1}')"
+  export DEPLOYMENT_OUTPUT=.deployment/devnet/pending-deploy.json
+  forge script script/Deploy.s.sol:Deploy --gas-estimate-multiplier 100000 \
     --disable-block-gas-limit --broadcast --slow \
     --rpc-url http://127.0.0.1:1235 \
     --private-key "${deployer_key}" >>"${log_file}" 2>&1
 )
-porep_json="${porep_root}/deployments/devnet/latest.json"
-[[ -f "${porep_json}" ]] || {
+porep_json="${deployment_root}/native/porep-market.json"
+[[ -f "${porep_pending}" ]] || {
   printf 'PoRep deployment manifest was not created\n' >&2
   exit 1
 }
-cp -- "${porep_json}" "${deployment_root}/native/porep-market.json"
+jq --arg finalizedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  '.result | .status="finalized" | .finalizedAt=$finalizedAt' \
+  "${porep_pending}" >"${porep_json}"
 
-po_rep_market="$(jq -r '.PoRepMarket.proxy' "${porep_json}")"
-po_rep_market_impl="$(jq -r '.PoRepMarket.impl' "${porep_json}")"
-data_cap_adapter="$(jq -r '.DataCapEvidenceAdapter.proxy' "${porep_json}")"
-data_cap_adapter_impl="$(jq -r '.DataCapEvidenceAdapter.impl' "${porep_json}")"
-validator_factory="$(jq -r '.ValidatorFactory.proxy' "${porep_json}")"
-validator_factory_impl="$(jq -r '.ValidatorFactory.impl' "${porep_json}")"
-validator_beacon="$(jq -r '.ValidatorBeacon' "${porep_json}")"
-validator_impl="$(jq -r '.ValidatorImpl' "${porep_json}")"
-sp_registry="$(jq -r '.SPRegistry.proxy' "${porep_json}")"
-sp_registry_impl="$(jq -r '.SPRegistry.impl' "${porep_json}")"
-sli_oracle="$(jq -r '.SLIOracle.proxy' "${porep_json}")"
-sli_oracle_impl="$(jq -r '.SLIOracle.impl' "${porep_json}")"
-sli_scorer="$(jq -r '.SLIScorer.proxy' "${porep_json}")"
-sli_scorer_impl="$(jq -r '.SLIScorer.impl' "${porep_json}")"
+po_rep_market="$(jq -r '.contracts.PoRepMarket.proxy' "${porep_json}")"
+po_rep_market_impl="$(jq -r '.contracts.PoRepMarket.implementation' "${porep_json}")"
+data_cap_adapter="$(jq -r '.contracts.DataCapEvidenceAdapter.proxy' "${porep_json}")"
+data_cap_adapter_impl="$(jq -r '.contracts.DataCapEvidenceAdapter.implementation' "${porep_json}")"
+validator_factory="$(jq -r '.contracts.ValidatorFactory.proxy' "${porep_json}")"
+validator_factory_impl="$(jq -r '.contracts.ValidatorFactory.implementation' "${porep_json}")"
+validator_beacon="$(jq -r '.contracts.ValidatorBeacon.address' "${porep_json}")"
+validator_impl="$(jq -r '.contracts.Validator.implementation' "${porep_json}")"
+sp_registry="$(jq -r '.contracts.SPRegistry.proxy' "${porep_json}")"
+sp_registry_impl="$(jq -r '.contracts.SPRegistry.implementation' "${porep_json}")"
+sli_oracle="$(jq -r '.contracts.SLIOracle.proxy' "${porep_json}")"
+sli_oracle_impl="$(jq -r '.contracts.SLIOracle.implementation' "${porep_json}")"
+sli_scorer="$(jq -r '.contracts.SLIScorer.proxy' "${porep_json}")"
+sli_scorer_impl="$(jq -r '.contracts.SLIScorer.implementation' "${porep_json}")"
 sector_status_inspector="$(
   deploy_contract "${porep_root}" \
     src/helpers/PoRepMarketSectorStatusInspector.sol:PoRepMarketSectorStatusInspector \

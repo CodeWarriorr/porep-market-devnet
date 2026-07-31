@@ -73,6 +73,40 @@ ensure_meta_allocator_notary() {
   devnet_die "MetaAllocator DataCap authority did not become active"
 }
 
+normalized_runtime_hash() {
+  local artifact_path="$1" runtime="${2:-}" normalized
+  if [[ -n "${runtime}" ]]; then
+    normalized="$(node "${DEVNET_ROOT}/scripts/normalize-runtime-bytecode.mjs" \
+      "${artifact_path}" "${runtime}")"
+  else
+    normalized="$(node "${DEVNET_ROOT}/scripts/normalize-runtime-bytecode.mjs" \
+      "${artifact_path}")"
+  fi
+  devnet_compose exec -T curio cast keccak "${normalized}" | awk '{print $1}'
+}
+
+verify_target_runtime_bytecode() {
+  local deployment_manifest="$1" target_root="$2"
+  local contract_name kind implementation artifact artifact_path runtime live_hash target_hash
+  while IFS=$'\t' read -r contract_name kind implementation; do
+    artifact="${contract_name}"
+    [[ "${kind}" == beacon ]] && artifact=Validator
+    artifact_path="${target_root}/out/${artifact}.sol/${artifact}.json"
+    [[ -f "${artifact_path}" && ! -L "${artifact_path}" ]] ||
+      devnet_die "compiled target artifact is missing: ${artifact}"
+    runtime="$(devnet_compose exec -T curio cast code "${implementation}" \
+      --rpc-url http://lotus:1234/rpc/v1 | awk '{print $1}')"
+    live_hash="$(normalized_runtime_hash "${artifact_path}" "${runtime}")"
+    target_hash="$(normalized_runtime_hash "${artifact_path}")"
+    [[ "${live_hash,,}" == "${target_hash,,}" ]] ||
+      devnet_die "runtime bytecode mismatch for ${contract_name}"
+  done < <(jq -r '
+    .contracts | to_entries[]
+    | select(.value.kind == "uups" or (.key == "ValidatorBeacon" and .value.kind == "beacon"))
+    | [.key, .value.kind, .value.implementation] | @tsv
+  ' "${deployment_manifest}")
+}
+
 key_file="${DEVNET_DATA_DIR}/contracts/deployer.private-key"
 [[ -f "${key_file}" && ! -L "${key_file}" ]] || devnet_die "DevNet deployer key is unavailable"
 
@@ -145,6 +179,7 @@ node "${DEVNET_ROOT}/scripts/run-with-timeout.mjs" --timeout-ms 1800000 -- \
 npm --prefix "${DEVNET_ROOT}/tools" run cli -- deployment revision inspect \
   "${generation}" "${genesis_cid}" "${chain_id}" "${provider}" <"${temporary}"
 devnet_verify_deployment_code "${temporary}"
+verify_target_runtime_bytecode "${temporary}" "${porep_snapshot}"
 ensure_meta_allocator_notary "${temporary}"
 mv -- "${temporary}" "${manifest}"
 

@@ -49,7 +49,7 @@ if [[ -f "${next_manifest}" && ! -L "${next_manifest}" ]]; then
   [[ -f "${target_json_path}" && ! -L "${target_json_path}" ]] ||
     devnet_die "completed revision is missing its upgrade target journal"
   target_root="$(jq -r '.snapshotPath' "${target_json_path}")"
-  target_native_manifest="${target_root}/deployments/devnet/latest.json"
+  target_native_manifest="${target_root}/.deployment/devnet/harness-manifest.json"
   [[ -f "${target_native_manifest}" && ! -L "${target_native_manifest}" ]] ||
     devnet_die "completed revision is missing its native manifest"
   cp "${target_native_manifest}" "${native_manifest}"
@@ -82,11 +82,16 @@ fi
 
 [[ -f "${native_manifest}" && ! -L "${native_manifest}" ]] ||
   devnet_die "native PoRep Market deployment manifest is missing"
-mkdir -p "${target_root}/deployments/devnet"
-target_native_manifest="${target_root}/deployments/devnet/latest.json"
+mkdir -p "${target_root}/.deployment/devnet"
+target_native_manifest="${target_root}/.deployment/devnet/harness-manifest.json"
 if [[ "${target_was_prepared}" == true || ! -f "${target_native_manifest}" ]]; then
   cp "${native_manifest}" "${target_native_manifest}"
 fi
+jq -e '.contracts.PoRepMarket.kind == "uups"
+  and .contracts.Validator.kind == "implementation"
+  and .contracts.ValidatorBeacon.kind == "beacon"' \
+  "${target_native_manifest}" >/dev/null ||
+  devnet_die "deployment predates the current manifest and must be redeployed, not upgraded"
 
 IFS=',' read -r -a requested_contracts <<<"${contracts_csv}"
 if [[ -f "${plan_path}" && ! -L "${plan_path}" ]]; then
@@ -118,7 +123,7 @@ node "${DEVNET_ROOT}/scripts/run-with-timeout.mjs" --timeout-ms 600000 -- \
   --entrypoint forge \
   -v "${target_root}:/workspace:rw" \
   -w /workspace \
-  "${image}" build
+  "${image}" build --build-info --extra-output storageLayout
 
 cast_curio() {
   devnet_compose exec -T curio cast "$@" --rpc-url "${rpc_url}" | tr -d '\r'
@@ -138,22 +143,16 @@ live_implementation() {
 }
 
 expected_runtime_hash() {
-  local contract_name="$1" code_hash
-  code_hash="$(jq -r --arg name "${contract_name}" \
-    '.[$name].codeHash // empty' "${target_native_manifest}")"
+  local operation_output="$1" code_hash
+  code_hash="$(jq -r '.operations[0].newImplementationCodeHash' "${operation_output}")"
   [[ "${code_hash}" =~ ^0x[0-9a-fA-F]{64}$ ]] ||
     devnet_die "upstream runtime code hash is unavailable: ${contract_name}"
   printf '%s\n' "${code_hash}"
 }
 
 target_implementation() {
-  local contract_name="$1" kind="$2"
-  if [[ "${kind}" == validator-beacon ]]; then
-    jq -r '.ValidatorImpl' "${target_native_manifest}"
-  else
-    jq -r --arg name "${contract_name}" '.[$name].impl' \
-      "${target_native_manifest}"
-  fi
+  local operation_output="$1"
+  jq -r '.operations[0].newImplementation' "${operation_output}"
 }
 
 authorized_for_upgrade() {
@@ -170,31 +169,52 @@ authorized_for_upgrade() {
   fi
 }
 
+normalized_runtime_hash() {
+  local artifact_path="$1" runtime="${2:-}" normalized
+  if [[ -n "${runtime}" ]]; then
+    normalized="$(node "${DEVNET_ROOT}/scripts/normalize-runtime-bytecode.mjs" \
+      "${artifact_path}" "${runtime}")"
+  else
+    normalized="$(node "${DEVNET_ROOT}/scripts/normalize-runtime-bytecode.mjs" \
+      "${artifact_path}")"
+  fi
+  cast keccak "${normalized}"
+}
+
+preflight_index=0
 while IFS=$'\t' read -r contract_name kind calldata <&3; do
+  preflight_index="$((preflight_index + 1))"
   expected="$(jq -r --arg name "${contract_name}" '.contracts[$name].implementation' "${current_manifest}")"
-  current_hash="$(jq -r --arg name "${contract_name}" \
-    '.contracts[$name].implementationCodeHash' "${current_manifest}")"
-  target_hash="$(expected_runtime_hash "${contract_name}")"
-  [[ "$(printf '%s' "${target_hash}" | tr '[:upper:]' '[:lower:]')" != \
-    "$(printf '%s' "${current_hash}" | tr '[:upper:]' '[:lower:]')" ]] ||
-    devnet_die "requested target has unchanged implementation code: ${contract_name}"
   actual="$(live_implementation "${contract_name}")"
+  artifact="${contract_name}"
+  [[ "${kind}" == validator-beacon ]] && artifact=Validator
+  artifact_path="${target_root}/out/${artifact}.sol/${artifact}.json"
+  [[ -f "${artifact_path}" ]] ||
+    devnet_die "compiled target artifact is missing: ${artifact}"
+  [[ "${calldata}" =~ ^0x([0-9a-fA-F]{2})*$ ]] ||
+    devnet_die "upgrade calldata must be explicit hex: ${contract_name}"
+  [[ "${calldata}" == 0x ]] ||
+    devnet_die "non-empty upgrade calldata is unsupported by the pinned upgrade script: ${contract_name}"
   if [[ "$(printf '%s' "${expected}" | tr '[:upper:]' '[:lower:]')" == \
     "$(printf '%s' "${actual}" | tr '[:upper:]' '[:lower:]')" ]]; then
+    current_runtime="$(cast_curio code "${actual}" | awk '{print $1}')"
+    current_normalized_hash="$(normalized_runtime_hash "${artifact_path}" "${current_runtime}")"
+    target_normalized_hash="$(normalized_runtime_hash "${artifact_path}")"
+    [[ "$(printf '%s' "${target_normalized_hash}" | tr '[:upper:]' '[:lower:]')" != \
+      "$(printf '%s' "${current_normalized_hash}" | tr '[:upper:]' '[:lower:]')" ]] ||
+      devnet_die "requested target has unchanged implementation code: ${contract_name}"
     authorized_for_upgrade "${contract_name}" ||
       devnet_die "deployer lacks upgrade authority: ${contract_name}"
   else
-    resumed_expected="$(target_implementation "${contract_name}" "${kind}")"
+    printf -v step_name '%02d-%s.json' "${preflight_index}" "${contract_name}"
+    operation_output="${target_root}/.deployment/devnet/${step_name%.json}-operations.json"
+    [[ -f "${operation_output}" && ! -L "${operation_output}" ]] ||
+      devnet_die "live implementation is neither the old nor a recorded pending target: ${contract_name}"
+    resumed_expected="$(target_implementation "${operation_output}")"
     [[ "$(printf '%s' "${resumed_expected}" | tr '[:upper:]' '[:lower:]')" == \
       "$(printf '%s' "${actual}" | tr '[:upper:]' '[:lower:]')" ]] ||
       devnet_die "live implementation is neither the old nor pending target: ${contract_name}"
   fi
-  artifact="${contract_name}"
-  [[ "${kind}" == validator-beacon ]] && artifact=Validator
-  [[ -f "${target_root}/out/${artifact}.sol/${artifact}.json" ]] ||
-    devnet_die "compiled target artifact is missing: ${artifact}"
-  [[ "${calldata}" =~ ^0x([0-9a-fA-F]{2})*$ ]] ||
-    devnet_die "upgrade calldata must be explicit hex: ${contract_name}"
 done 3< <(jq -r '.steps[] | [.contract,.kind,.calldata] | @tsv' <<<"${plan}")
 
 receipts_dir="${deployment_dir}/upgrade-receipts/${next_name%.json}"
@@ -211,14 +231,15 @@ while IFS=$'\t' read -r contract_name kind calldata <&3; do
   printf -v step_name '%02d-%s.json' "${step_index}" "${contract_name}"
   receipt_path="${receipts_dir}/${step_name}"
   log_path="${receipts_dir}/${step_name%.json}.log"
-  if [[ "${kind}" == uups ]]; then
-    script_target="script/Upgrade.s.sol:Upgrade"
-    broadcast_script="Upgrade.s.sol"
-    artifact="${contract_name}"
-  else
-    script_target="script/UpgradeValidatorBeacon.s.sol:UpgradeValidatorBeacon"
-    broadcast_script="UpgradeValidatorBeacon.s.sol"
+  operation_output="${target_root}/.deployment/devnet/${step_name%.json}-operations.json"
+  operation_output_relative=".deployment/devnet/${step_name%.json}-operations.json"
+  script_target="script/Upgrade.s.sol:Upgrade"
+  broadcast_script="Upgrade.s.sol"
+  artifact="${contract_name}"
+  upstream_contract_name="${contract_name}"
+  if [[ "${kind}" == validator-beacon ]]; then
     artifact=Validator
+    upstream_contract_name=Validator
   fi
 
   old_impl="$(jq -r --arg name "${contract_name}" \
@@ -226,21 +247,15 @@ while IFS=$'\t' read -r contract_name kind calldata <&3; do
   live_before="$(live_implementation "${contract_name}")"
   if [[ "$(printf '%s' "${live_before}" | tr '[:upper:]' '[:lower:]')" == \
     "$(printf '%s' "${old_impl}" | tr '[:upper:]' '[:lower:]')" ]]; then
-    # Forge simulations may write the upstream deployment artifact before
-    # broadcast fails. Restore only this pending contract from the published
-    # artifact so retrying cannot mistake a simulated implementation for a
-    # completed upgrade.
-    jq --arg name "${contract_name}" --slurpfile published "${native_manifest}" \
-      '.[$name] = $published[0][$name]' "${target_native_manifest}" \
-      >"${target_native_manifest}.temporary"
-    mv "${target_native_manifest}.temporary" "${target_native_manifest}"
+    jq -n '{operations:[]}' >"${operation_output}"
     node "${DEVNET_ROOT}/scripts/run-with-timeout.mjs" --timeout-ms 900000 -- \
       docker run --rm --network "${DEVNET_PROJECT}_default" \
       --platform "${platform}" \
       --entrypoint bash \
       -e "RPC_URL=${rpc_url}" \
-      -e "UPGRADE_CONTRACT_NAME=${contract_name}" \
-      -e "UPGRADE_CALLDATA=${calldata}" \
+      -e "DEPLOYMENT_MANIFEST=.deployment/devnet/harness-manifest.json" \
+      -e "UPGRADE_CONTRACT_NAMES=${upstream_contract_name}" \
+      -e "UPGRADE_OUTPUT=${operation_output_relative}" \
       -v "${target_root}:/workspace:rw" \
       -v "${DEVNET_ROOT}/scripts/filecoin-rpc-proxy.mjs:/run/filecoin-rpc-proxy.mjs:ro" \
       -v "${key_file}:/run/secrets/deployer-key:ro" \
@@ -260,7 +275,7 @@ while IFS=$'\t' read -r contract_name kind calldata <&3; do
       upgrade "${script_target}" >"${log_path}" 2>&1
   fi
 
-  expected_impl="$(target_implementation "${contract_name}" "${kind}")"
+  expected_impl="$(target_implementation "${operation_output}")"
   new_impl="$(live_implementation "${contract_name}")"
   [[ "$(printf '%s' "${new_impl}" | tr '[:upper:]' '[:lower:]')" == \
     "$(printf '%s' "${expected_impl}" | tr '[:upper:]' '[:lower:]')" ]] ||
@@ -269,11 +284,26 @@ while IFS=$'\t' read -r contract_name kind calldata <&3; do
     "$(printf '%s' "${old_impl}" | tr '[:upper:]' '[:lower:]')" ]] ||
     devnet_die "upgrade did not change implementation: ${contract_name}"
 
-  expected_hash="$(expected_runtime_hash "${contract_name}")"
+  expected_hash="$(expected_runtime_hash "${operation_output}")"
   code_hash="$(cast keccak "$(cast_curio code "${new_impl}" | awk '{print $1}')")"
   [[ "$(printf '%s' "${code_hash}" | tr '[:upper:]' '[:lower:]')" == \
     "$(printf '%s' "${expected_hash}" | tr '[:upper:]' '[:lower:]')" ]] ||
     devnet_die "live implementation code does not match the compiled target: ${contract_name}"
+
+  if [[ "${kind}" == validator-beacon ]]; then
+    jq --arg implementation "${new_impl}" --arg implementationCodeHash "${code_hash}" \
+      '.contracts.Validator.implementation=$implementation
+       | .contracts.Validator.implementationCodeHash=$implementationCodeHash
+       | .contracts.ValidatorBeacon.implementation=$implementation' \
+      "${target_native_manifest}" >"${target_native_manifest}.temporary"
+  else
+    jq --arg name "${contract_name}" --arg implementation "${new_impl}" \
+      --arg implementationCodeHash "${code_hash}" \
+      '.contracts[$name].implementation=$implementation
+       | .contracts[$name].implementationCodeHash=$implementationCodeHash' \
+      "${target_native_manifest}" >"${target_native_manifest}.temporary"
+  fi
+  mv "${target_native_manifest}.temporary" "${target_native_manifest}"
 
   if [[ -f "${receipt_path}" && ! -L "${receipt_path}" ]]; then
     tx_hash="$(jq -r '.hash' "${receipt_path}")"

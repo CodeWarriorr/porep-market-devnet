@@ -44,7 +44,7 @@ function mapping(value: unknown): Record<string, unknown> {
 test("runtime lock loads the exact devnet network schedule and actor CIDs", async () => {
   const lock = await loadRuntimeLock(checkedInLockPath);
 
-  assert.equal(lock.selectedAt, "2026-07-24T12:59:16+02:00");
+  assert.equal(lock.selectedAt, "2026-07-28T15:06:39+02:00");
   assert.deepEqual(lock.network, {
     chainId: 31_415_926,
     genesis: {
