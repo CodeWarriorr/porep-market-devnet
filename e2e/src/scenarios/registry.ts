@@ -19,6 +19,7 @@ import { runNegativeActivationBeforeEvidence } from "./negativeActivationFlow.js
 import { runSettlementGuards } from "./settlementGuards.js";
 import { runSharedClientMultiRailSettlement } from "./sharedClientMultiRailSettlement.js";
 import { runProposalSmoke, runValidatorRailSmoke } from "./smokeFlows.js";
+import { runPostDatacapEvidenceCorrelation } from "./postDatacapEvidenceCorrelation.js";
 import { runDirectOnboardingNotification } from "./directOnboardingNotification.js";
 import { runDirectOnboardingNotificationFailure } from "./directOnboardingNotificationFailure.js";
 import { runDuplicateManifestLifecycle } from "./duplicateManifestLifecycle.js";
@@ -132,6 +133,16 @@ export const scenarioDefinitions: Record<string, ScenarioDefinition> = {
     tags: ["curio", "infra"],
     timeoutMs: CONTRACT_TIMEOUT_MS,
     requiredContracts: [],
+  },
+  "post-datacap-evidence-correlation": {
+    run: runPostDatacapEvidenceCorrelation,
+    tags: ["curio", "sealing"],
+    timeoutMs: CURIO_TIMEOUT_MS,
+    requiredContracts: [
+      ...MARKET_CONTRACTS,
+      "NotificationReceiver",
+      "SectorStatusInspector",
+    ],
   },
   "proposal-smoke": contract(runProposalSmoke),
   "sector-status-active": {

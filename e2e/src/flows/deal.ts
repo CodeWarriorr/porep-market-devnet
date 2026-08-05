@@ -23,18 +23,22 @@ export type ProposalManifest = {
   hash: string;
 };
 
-export function nextProposalManifest(context: ScenarioContext): ProposalManifest {
+export function nextProposalManifest(
+  context: ScenarioContext,
+  hashOverride?: string,
+): ProposalManifest {
   const explicitLocation = envValue(context, "V2_MANIFEST_LOCATION");
   const location = explicitLocation || defaultProposalManifestLocation(context);
   return {
     location,
-    hash: envValue(context, "V2_MANIFEST_HASH", keccakText(location))
+    hash: hashOverride ?? envValue(context, "V2_MANIFEST_HASH", keccakText(location))
   };
 }
 
 export async function proposeDealAndAssertAccepted(
   context: ScenarioContext,
-  offer?: ProviderOffer
+  offer?: ProviderOffer,
+  manifestHash?: string,
 ): Promise<AcceptedDeal> {
   requireDevnet(context);
   const evm = new Evm(context);
@@ -49,7 +53,7 @@ export async function proposeDealAndAssertAccepted(
   const indexing = envBigInt(context, "V2_INDEXING_PCT", 100n);
   const paymentToken = envValue(context, "V2_PAYMENT_TOKEN", context.config.addresses.usdcToken);
   const dealType = envBigInt(context, "V2_DEAL_TYPE", PUBLIC_DEAL_TYPE);
-  const manifest = nextProposalManifest(context);
+  const manifest = nextProposalManifest(context, manifestHash);
 
   console.log("Proposing V2 deal...");
   const txHash = await evm.send(

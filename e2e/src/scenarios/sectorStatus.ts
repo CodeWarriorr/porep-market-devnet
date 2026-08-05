@@ -64,7 +64,7 @@ function deployedOfferContext(context: ScenarioContext): ScenarioContext {
   };
 }
 
-async function validateSectorStatus(
+export async function validateSectorStatus(
   context: ScenarioContext,
   dealId: bigint,
   sector: number,

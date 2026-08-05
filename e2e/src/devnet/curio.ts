@@ -35,6 +35,33 @@ export function notificationPayloadHex(id: bigint): string {
   return `01${id.toString(16).padStart(16, "0")}`;
 }
 
+export function postDataCapNotificationPayloadHex(
+  allocationId: bigint,
+  porepDealId: bigint,
+): string {
+  if (allocationId < 0n || allocationId > 0xffff_ffff_ffff_ffffn) {
+    throw new Error("notification allocation ID must fit in uint64");
+  }
+  if (porepDealId < 0n || porepDealId >= 1n << 256n) {
+    throw new Error("notification PoRep deal ID must fit in uint256");
+  }
+  return `02${allocationId.toString(16).padStart(16, "0")}${porepDealId.toString(16).padStart(64, "0")}`;
+}
+
+export function decodePostDataCapNotificationPayload(payload: string): {
+  allocationId: bigint;
+  porepDealId: bigint;
+} {
+  const hex = payload.startsWith("0x") ? payload.slice(2) : payload;
+  if (!/^[0-9a-fA-F]{82}$/.test(hex) || hex.slice(0, 2) !== "02") {
+    throw new Error("invalid post-DataCap notification payload");
+  }
+  return {
+    allocationId: BigInt(`0x${hex.slice(2, 18)}`),
+    porepDealId: BigInt(`0x${hex.slice(18)}`),
+  };
+}
+
 export function buildMk20DealArgs(input: Mk20DealInput): string[] {
   const args = [
     "sptool", "--actor", input.provider, "toolbox", "mk20-client", "deal",
@@ -126,10 +153,13 @@ export async function submitCurioNotification(
   context: ScenarioContext,
   piece: PieceInfo,
   receiverEvmAddress: string,
+  porepDealId?: bigint,
 ): Promise<CurioNotificationDeal> {
   const allocation = createCurioAllocation(context, piece);
   const notificationAddress = evmToFilecoinAddress(context, receiverEvmAddress);
-  const notificationPayload = notificationPayloadHex(allocation.allocationId);
+  const notificationPayload = porepDealId === undefined
+    ? notificationPayloadHex(allocation.allocationId)
+    : postDataCapNotificationPayloadHex(allocation.allocationId, porepDealId);
   const providerEnv = { SP_ADDRESS: context.config.provider };
   const submissionOutput = dockerExecEnv(
     context,
