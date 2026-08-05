@@ -3,9 +3,11 @@ import test from "node:test";
 import {
   assertCurioStatus,
   buildMk20DealArgs,
+  decodePostDataCapNotificationPayload,
   filecoinAddressFromEvmStat,
   notificationPayloadHex,
   parseAllocationId,
+  postDataCapNotificationPayloadHex,
 } from "../src/devnet/curio.js";
 
 test("filecoinAddressFromEvmStat parses Lotus EVM output", () => {
@@ -58,6 +60,30 @@ test("Curio notification request uses the signed stock client path and exact fie
     "--notification-address", "t410freceiver",
     "--notification-payload", "01000000000000002a",
   ]);
+});
+
+test("post-DataCap notification payload binds allocation and PoRep deal IDs", () => {
+  const payload = `02${"2a".padStart(16, "0")}${"7".padStart(64, "0")}`;
+  assert.equal(postDataCapNotificationPayloadHex(42n, 7n), payload);
+  assert.deepEqual(decodePostDataCapNotificationPayload(`0x${payload}`), {
+    allocationId: 42n,
+    porepDealId: 7n,
+  });
+});
+
+test("post-DataCap notification payload rejects invalid versions and integer bounds", () => {
+  assert.throws(
+    () => postDataCapNotificationPayloadHex(-1n, 7n),
+    /allocation ID must fit in uint64/,
+  );
+  assert.throws(
+    () => postDataCapNotificationPayloadHex(42n, 1n << 256n),
+    /PoRep deal ID must fit in uint256/,
+  );
+  assert.throws(
+    () => decodePostDataCapNotificationPayload(`0x03${"00".repeat(40)}`),
+    /invalid post-DataCap notification payload/,
+  );
 });
 
 test("Curio request can identify an allowlisted contract allocation owner", () => {
