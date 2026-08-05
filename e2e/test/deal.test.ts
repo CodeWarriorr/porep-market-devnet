@@ -46,6 +46,15 @@ test("nextProposalManifest preserves explicit manifest env values", () => {
   assert.equal(second.hash, "0x1234000000000000000000000000000000000000000000000000000000000000");
 });
 
+test("nextProposalManifest prefers a call-local hash override", () => {
+  const context = testContext({
+    V2_MANIFEST_HASH: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  });
+  const manifestHash = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+  assert.equal(nextProposalManifest(context, manifestHash).hash, manifestHash);
+});
+
 function testContext(env: Record<string, string | undefined> = {}): ScenarioContext {
   const dir = mkdtempSync(join(tmpdir(), "porep-e2e-deal-"));
   return {
