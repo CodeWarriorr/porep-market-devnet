@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { InterfaceAbi } from "ethers";
 import type { ScenarioContext } from "../runtime.js";
 
@@ -18,7 +18,8 @@ export type ContractAbis = {
 const cache = new Map<string, ContractAbis>();
 
 export function artifactAbis(context: ScenarioContext): ContractAbis {
-  const filecoinPayRoot = join(context.projectRoot, ".runtime/contracts/work/filecoin-pay");
+  const deploymentRoot = dirname(dirname(context.config.deploymentRecordPath));
+  const filecoinPayRoot = join(deploymentRoot, "work/filecoin-pay");
   const harnessRoot = join(context.projectRoot, ".runtime/contracts");
   const cacheKey = `${context.config.porepSourceDir}:${filecoinPayRoot}:${harnessRoot}`;
   const cached = cache.get(cacheKey);

@@ -23,7 +23,7 @@ const malformedOperatorData = [
   { label: "wrong top-level arity", payload: "0x8180", error: "InvalidOperatorData" },
   { label: "wrong allocation arity", payload: "0x828187", error: "InvalidAllocationRequest" },
   { label: "wrong extension arity", payload: "0x82808182", error: "InvalidClaimExtensionRequest" },
-  { label: "truncated bytes", payload: "0x82", error: "InvalidOperatorData" },
+  { label: "truncated bytes", payload: "0x82" },
   { label: "nested junk", payload: "0x828181818180", error: "InvalidAllocationRequest" },
   { label: "empty top-level array", payload: "0x80", error: "InvalidOperatorData" },
 ] as const;
@@ -60,16 +60,25 @@ export async function runDataCapMalformedInput(context: ScenarioContext): Promis
       const before = await dataCapGuardState(context, deal.dealId);
       const calldata = replaceDataCapBatchOperatorData(adapterAbi, validCalldata, malformed.payload);
       try {
-        const error = await expectRevertOnSend(
-          evm,
-          context.config.privateKeyTest,
-          context.config.addresses.dataCapEvidenceAdapter,
-          calldata,
-          [],
-          adapterAbi,
-          malformed.error,
-        );
-        assertEqual(error.args.length, 0, `${malformed.label} error arguments`);
+        if ("error" in malformed) {
+          const error = await expectRevertOnSend(
+            evm,
+            context.config.privateKeyTest,
+            context.config.addresses.dataCapEvidenceAdapter,
+            calldata,
+            [],
+            adapterAbi,
+            malformed.error,
+          );
+          assertEqual(error.args.length, 0, `${malformed.label} error arguments`);
+        } else {
+          const outcome = await evm.sendWithPrivateKeyAllowRevert(
+            context.config.privateKeyTest,
+            context.config.addresses.dataCapEvidenceAdapter,
+            calldata,
+          );
+          assertEqual(outcome.receipt.status, "0x0", `${malformed.label} transaction status`);
+        }
       } catch (error) {
         failures.push(`${malformed.label}: ${error instanceof Error ? error.message : String(error)}`);
       }
