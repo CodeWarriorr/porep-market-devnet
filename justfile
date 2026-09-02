@@ -47,6 +47,14 @@ test-scenario name deployment='active':
     @bash scripts/devnet-use-deployment.sh '{{deployment}}' latest
     @node scripts/run-with-timeout.mjs --timeout-ms 7200000 -- npm --prefix e2e run scenario -- '{{name}}'
 
+test-sector-evidence-large-refresh sectors='16' deployment='active':
+    @bash scripts/devnet-use-deployment.sh '{{deployment}}' latest
+    @SECTOR_EVIDENCE_LARGE_SECTOR_COUNT='{{sectors}}' node scripts/run-with-timeout.mjs --timeout-ms 43200000 -- npm --prefix e2e run scenario -- 'sector-evidence-large-refresh'
+
+test-sector-evidence-batched-commit sectors='4' deployment='active':
+    @bash scripts/devnet-use-deployment.sh '{{deployment}}' latest
+    @SECTOR_EVIDENCE_BATCHED_COMMIT_SECTOR_COUNT='{{sectors}}' node scripts/run-with-timeout.mjs --timeout-ms 43200000 -- npm --prefix e2e run scenario -- 'sector-evidence-batched-commit'
+
 test-e2e suite='contract' deployment='active':
     @bash scripts/devnet-use-deployment.sh '{{deployment}}' latest
     @node scripts/run-with-timeout.mjs --timeout-ms 43200000 -- npm --prefix e2e run matrix -- '{{suite}}'

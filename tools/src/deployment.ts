@@ -17,6 +17,8 @@ export const deploymentContractNames = [
   "PoRepMarketImplementation",
   "DataCapEvidenceAdapter",
   "DataCapEvidenceAdapterImplementation",
+  "SectorEvidenceAdapter",
+  "SectorEvidenceAdapterImplementation",
   "ValidatorFactory",
   "ValidatorFactoryImplementation",
   "ValidatorBeacon",

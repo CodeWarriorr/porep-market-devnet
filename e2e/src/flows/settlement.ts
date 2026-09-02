@@ -87,10 +87,12 @@ export async function setSliAttestationForDeal(
   const evm = new Evm(context);
   const view = contracts(context);
   const dealSlis = await view.dealSlis(accepted.dealId);
+  // SLIOracle requires a measured latency even when the deal disables latency scoring.
+  const defaultLatencyMs = dealSlis.latencyMs === 0n ? 1n : dealSlis.latencyMs;
   const slis = {
     retrievabilityBps: envBigInt(context, "V2_SLI_RETRIEVABILITY_BPS", dealSlis.retrievabilityBps),
     bandwidthBytesPerSecond: envBigInt(context, "V2_SLI_BANDWIDTH_BYTES_PER_SECOND", dealSlis.bandwidthBytesPerSecond),
-    latencyMs: envBigInt(context, "V2_SLI_LATENCY_MS", dealSlis.latencyMs),
+    latencyMs: envBigInt(context, "V2_SLI_LATENCY_MS", defaultLatencyMs),
     indexingAvailabilityPct: envBigInt(context, "V2_SLI_INDEXING_PCT", dealSlis.indexingAvailabilityPct)
   };
 
@@ -502,7 +504,7 @@ export async function expectSettlementBlockedWithoutPayout(
   dealId: bigint,
   rail: PreparedRail,
   targetEpoch: bigint,
-  expectedError: "NoAttestation" | "NoProgressInSettlement"
+  expectedError: "EvidenceTooStale" | "NoAttestation" | "NoProgressInSettlement"
 ): Promise<void> {
   requireDevnet(context);
   const evm = new Evm(context);
@@ -517,7 +519,11 @@ export async function expectSettlementBlockedWithoutPayout(
   console.log(`  Payee before: ${beforeFunds}`);
   console.log(`  Rail settled up to before: ${beforeRail.settledUpTo}`);
 
-  const abi = expectedError === "NoAttestation" ? artifactAbis(context).sliScorer : artifactAbis(context).filecoinPay;
+  const abi = expectedError === "NoAttestation"
+    ? artifactAbis(context).sliScorer
+    : expectedError === "EvidenceTooStale"
+      ? artifactAbis(context).poRepMarket
+      : artifactAbis(context).filecoinPay;
   const error = await expectRevertOnSend(
     evm,
     context.config.privateKeyTest,
@@ -529,7 +535,7 @@ export async function expectSettlementBlockedWithoutPayout(
   );
   if (expectedError === "NoAttestation") {
     assertEqual(error.args[0], dealId, "NoAttestation dealId");
-  } else {
+  } else if (expectedError === "NoProgressInSettlement") {
     assertEqual(error.args[0], rail.railId, "NoProgressInSettlement railId");
     assertEqual(error.args[1], beforeRail.settledUpTo + 1n, "NoProgressInSettlement expected settled epoch");
     assertEqual(error.args[2], beforeRail.settledUpTo, "NoProgressInSettlement actual settled epoch");
