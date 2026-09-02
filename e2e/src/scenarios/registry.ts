@@ -32,6 +32,9 @@ import {
   runAcceptedDealRejection,
 } from "./acceptedDealExits.js";
 import { runDealTermination } from "./dealTermination.js";
+import { runSectorEvidenceMultiPieceActivation } from "./sectorEvidenceMultiPieceActivation.js";
+import { runSectorEvidenceLargeRefresh } from "./sectorEvidenceLargeRefresh.js";
+import { runSectorEvidenceBatchedCommit } from "./sectorEvidenceBatchedCommit.js";
 
 export type ScenarioTag =
   | "contract"
@@ -48,6 +51,7 @@ export type ScenarioDefinition = {
   requiredContracts: string[];
   fixtures?: Array<"active-sector">;
   destructive?: boolean;
+  directOnly?: boolean;
 };
 
 const MARKET_CONTRACTS = [
@@ -56,6 +60,7 @@ const MARKET_CONTRACTS = [
   "ValidatorFactory",
   "ValidatorBeacon",
   "DataCapEvidenceAdapter",
+  "SectorEvidenceAdapter",
   "FilecoinPay",
   "SLIOracle",
   "MetaAllocator",
@@ -63,6 +68,7 @@ const MARKET_CONTRACTS = [
 ] as const;
 const CONTRACT_TIMEOUT_MS = 10 * 60_000;
 const CURIO_TIMEOUT_MS = 2 * 60 * 60_000;
+const LARGE_SECTOR_TIMEOUT_MS = 12 * 60 * 60_000;
 
 function contract(
   run: ScenarioDefinition["run"],
@@ -159,6 +165,17 @@ export const scenarioDefinitions: Record<string, ScenarioDefinition> = {
     requiredContracts: ["SectorStatusInspector"],
   },
   "settlement-guards": sealing(runSettlementGuards, ["curio", "sealing", "security"]),
+  "sector-evidence-large-refresh": {
+    ...sealing(runSectorEvidenceLargeRefresh),
+    timeoutMs: LARGE_SECTOR_TIMEOUT_MS,
+    directOnly: true,
+  },
+  "sector-evidence-batched-commit": {
+    ...sealing(runSectorEvidenceBatchedCommit),
+    timeoutMs: LARGE_SECTOR_TIMEOUT_MS,
+    directOnly: true,
+  },
+  "sector-evidence-multi-piece-activation": sealing(runSectorEvidenceMultiPieceActivation),
   "shared-client-multi-rail-settlement": sealing(runSharedClientMultiRailSettlement),
   "termination-settlement": sealing(runTerminationSettlement, ["curio", "sealing", "security"]),
   "validator-rail-smoke": contract(runValidatorRailSmoke),
@@ -212,12 +229,14 @@ export function resolveSuite(name: string): string[] {
     return scenarioNames.filter((scenario) =>
       !scenarioDefinitions[scenario]!.tags.includes("upgrade")
         && !scenarioDefinitions[scenario]!.destructive
+        && !scenarioDefinitions[scenario]!.directOnly
     );
   }
   if (name === "contract" || name === "curio" || name === "security") {
     return scenarioNames.filter((scenario) =>
       scenarioDefinitions[scenario]!.tags.includes(name)
         && !scenarioDefinitions[scenario]!.destructive
+        && !scenarioDefinitions[scenario]!.directOnly
     );
   }
   throw new Error(`unknown suite: ${name}`);

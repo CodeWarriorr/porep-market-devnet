@@ -39,6 +39,7 @@ export async function proposeDealAndAssertAccepted(
   context: ScenarioContext,
   offer?: ProviderOffer,
   manifestHash?: string,
+  expectedEvidenceAdapter = context.config.addresses.dataCapEvidenceAdapter,
 ): Promise<AcceptedDeal> {
   requireDevnet(context);
   const evm = new Evm(context);
@@ -54,6 +55,16 @@ export async function proposeDealAndAssertAccepted(
   const paymentToken = envValue(context, "V2_PAYMENT_TOKEN", context.config.addresses.usdcToken);
   const dealType = envBigInt(context, "V2_DEAL_TYPE", PUBLIC_DEAL_TYPE);
   const manifest = nextProposalManifest(context, manifestHash);
+
+  const market = evm.contract(context.config.addresses.poRepMarket, [
+    "function getGlobalEvidenceAdapter() view returns (address)",
+  ]);
+  const selectedEvidenceAdapter = await market.getGlobalEvidenceAdapter() as string;
+  assertEqual(
+    lower(selectedEvidenceAdapter),
+    lower(expectedEvidenceAdapter),
+    "global evidence adapter before proposal",
+  );
 
   console.log("Proposing V2 deal...");
   const txHash = await evm.send(
@@ -75,7 +86,7 @@ export async function proposeDealAndAssertAccepted(
   const slis = await view.dealSlis(dealId);
 
   assertEqual(deal.state, 20n, `V2 deal ${dealId} state`);
-  assertEqual(lower(deal.evidenceAdapter), lower(context.config.addresses.dataCapEvidenceAdapter), "evidence adapter");
+  assertEqual(lower(deal.evidenceAdapter), lower(expectedEvidenceAdapter), "evidence adapter");
   assertEqual(deal.dealType, dealType, "deal type");
   assertEqual(deal.proposedAtEpoch, BigInt(evm.receipt(txHash).blockNumber), "proposedAtEpoch");
   assertEqual(deal.offerId > 0n, true, "deal froze provider offer id");

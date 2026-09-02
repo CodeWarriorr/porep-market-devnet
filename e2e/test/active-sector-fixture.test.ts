@@ -7,6 +7,7 @@ import type { E2EConfig } from "../src/config.js";
 import {
   activeSectorFixturePath,
   ensureActiveSectorFixture,
+  readSectorExpiration,
 } from "../src/fixtures/activeSector.js";
 import { createScenarioContext } from "../src/runtime.js";
 
@@ -104,6 +105,30 @@ test("concurrent fixture creation publishes one sector", async () => {
   assert.equal(creates, 1);
 });
 
+test("sector expiration comes from the current Lotus sector record", async () => {
+  const context = fixtureContext();
+  const originalFetch = globalThis.fetch;
+  let requestBody: unknown;
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    requestBody = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify({ result: { Expiration: 12_345 } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+  try {
+    assert.equal(await readSectorExpiration(context, 77), 12_345n);
+    assert.deepEqual(requestBody, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "Filecoin.StateSectorGetInfo",
+      params: ["t01004", 77, null],
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 function fixtureContext() {
   const projectRoot = mkdtempSync(join(tmpdir(), "active-sector-"));
   return createScenarioContext(config(projectRoot), join(projectRoot, "run"), "fixture-run");
@@ -151,6 +176,7 @@ function config(projectRoot: string): E2EConfig {
     addresses: {
       poRepMarket: address, spRegistry: address, validatorFactory: address,
       dataCapEvidenceAdapter: address, filecoinPay: address, sliOracle: address,
+      sectorEvidenceAdapter: address,
       metaAllocator: address, usdcToken: address, notificationReceiver: address,
       failingNotificationReceiver: address, sectorStatusInspector: address,
     },

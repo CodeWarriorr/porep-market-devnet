@@ -17,6 +17,7 @@ import {
   consumeScenarioFixtures,
   resolveScenario,
 } from "./scenarios/registry.js";
+import { recoverSectorEvidenceCommitBatchConfig } from "./devnet/curioCommitBatch.js";
 
 const scenario = process.argv[2] ?? "preflight";
 let context: ScenarioContext | undefined;
@@ -38,6 +39,7 @@ try {
   }
   mkdirSync(runDir, { recursive: true });
   context = createScenarioContext(config, runDir, runId);
+  await recoverSectorEvidenceCommitBatchConfig(context);
   const facts = collectPreflightFacts(context);
   assertPreflightFacts(facts);
   writeFileSync(
