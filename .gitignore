@@ -10,3 +10,4 @@ tools/dist/
 .netrc
 *.key
 *.pem
+.worktrees/
