@@ -409,6 +409,8 @@ test("deployment scripts create append-only revisions and expose public integrat
   assert.match(deployScript, /split\("\\t"\) \| select\(length >= 3/);
   assert.match(deployScript, /lotus-shed verifreg add-verifier\s+\\?\s*t0100/);
   assert.match(deployScript, /lotus msig approve --from t0101/);
+  assert.match(deployScript, /no such transaction/);
+  assert.match(deployScript, /MetaAllocator verifier approval did not become available/);
   assert.match(deployScript, /lotus filplus check-notary-datacap/);
   assert.match(deployScript, /normalize-runtime-bytecode\.mjs/);
   assert.match(deployScript, /runtime bytecode mismatch for/);
