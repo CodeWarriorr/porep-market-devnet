@@ -54,6 +54,7 @@ function fixture(): string {
       contracts: Object.fromEntries([
         ["PoRepMarket", "1"], ["SPRegistry", "2"], ["ValidatorFactory", "3"],
         ["DataCapEvidenceAdapter", "4"], ["FilecoinPay", "5"], ["SLIOracle", "6"],
+        ["SectorEvidenceAdapter", "c"],
         ["MetaAllocator", "7"], ["MockUSDC", "8"],
         ["NotificationReceiver", "9"], ["FailingNotificationReceiver", "a"],
         ["SectorStatusInspector", "b"],
@@ -96,6 +97,7 @@ test("loadConfig reads current deployment, status, and test identities", () => {
   assert.equal(config.addresses.poRepMarket, address("1"));
   assert.equal(config.addresses.usdcToken, address("8"));
   assert.equal(config.addresses.notificationReceiver, address("9"));
+  assert.equal(config.addresses.sectorEvidenceAdapter, address("c"));
   assert.equal(config.privateKeyTest, key("2"));
   assert.equal(config.privateKeySp, key("8"));
   assert.equal(config.identityKeys.operator, key("5"));

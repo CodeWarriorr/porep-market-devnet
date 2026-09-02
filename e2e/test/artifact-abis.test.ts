@@ -18,6 +18,7 @@ test("artifactAbis loads the current runtime build artifacts", () => {
     ["ValidatorFactory.sol/ValidatorFactory.json", "getInstance"],
     ["Validator.sol/Validator.json", "getRailStatus"],
     ["DataCapEvidenceAdapter.sol/DataCapEvidenceAdapter.json", "getClaimIds"],
+    ["SectorEvidenceAdapter.sol/SectorEvidenceAdapter.json", "getManifestReceipt"],
     ["SLIOracle.sol/SLIOracle.json", "getAttestation"],
     ["SLIScorer.sol/SLIScorer.json", "calculateScore"],
   ]) writeArtifact(porep, name!, fn!);
@@ -79,6 +80,7 @@ function config(projectRoot: string, porepSourceDir: string): E2EConfig {
     addresses: {
       poRepMarket: address, spRegistry: address, validatorFactory: address,
       dataCapEvidenceAdapter: address, filecoinPay: address, sliOracle: address,
+      sectorEvidenceAdapter: address,
       metaAllocator: address, usdcToken: address,
       notificationReceiver: address, failingNotificationReceiver: address,
       sectorStatusInspector: address,

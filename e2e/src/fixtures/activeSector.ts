@@ -235,7 +235,7 @@ async function sectorIsActive(
   return result.some((sector) => sector.SectorNumber === fixture.sector);
 }
 
-async function readSectorLocation(
+export async function readSectorLocation(
   context: ScenarioContext,
   sector: number,
 ): Promise<{ Deadline: number; Partition: number }> {
@@ -244,6 +244,25 @@ async function readSectorLocation(
     sector,
     null,
   ]);
+}
+
+export async function readSectorExpiration(
+  context: ScenarioContext,
+  sector: number,
+): Promise<bigint> {
+  const info = await lotusRpc<{ Expiration?: number | string } | null>(
+    context,
+    "Filecoin.StateSectorGetInfo",
+    [context.config.provider, sector, null],
+  );
+  const expiration = info?.Expiration;
+  if (typeof expiration === "number" && Number.isSafeInteger(expiration) && expiration > 0) {
+    return BigInt(expiration);
+  }
+  if (typeof expiration === "string" && /^[1-9][0-9]*$/.test(expiration)) {
+    return BigInt(expiration);
+  }
+  throw new Error(`sector ${sector} has no valid nominal expiration`);
 }
 
 async function lotusRpc<T>(

@@ -168,6 +168,8 @@ po_rep_market="$(jq -r '.contracts.PoRepMarket.proxy' "${porep_json}")"
 po_rep_market_impl="$(jq -r '.contracts.PoRepMarket.implementation' "${porep_json}")"
 data_cap_adapter="$(jq -r '.contracts.DataCapEvidenceAdapter.proxy' "${porep_json}")"
 data_cap_adapter_impl="$(jq -r '.contracts.DataCapEvidenceAdapter.implementation' "${porep_json}")"
+sector_evidence_adapter="$(jq -r '.contracts.SectorEvidenceAdapter.proxy' "${porep_json}")"
+sector_evidence_adapter_impl="$(jq -r '.contracts.SectorEvidenceAdapter.implementation' "${porep_json}")"
 validator_factory="$(jq -r '.contracts.ValidatorFactory.proxy' "${porep_json}")"
 validator_factory_impl="$(jq -r '.contracts.ValidatorFactory.implementation' "${porep_json}")"
 validator_beacon="$(jq -r '.contracts.ValidatorBeacon.address' "${porep_json}")"
@@ -226,6 +228,8 @@ PoRepMarket	${po_rep_market}	uups	${po_rep_market_impl}
 PoRepMarketImplementation	${po_rep_market_impl}	direct
 DataCapEvidenceAdapter	${data_cap_adapter}	uups	${data_cap_adapter_impl}
 DataCapEvidenceAdapterImplementation	${data_cap_adapter_impl}	direct
+SectorEvidenceAdapter	${sector_evidence_adapter}	uups	${sector_evidence_adapter_impl}
+SectorEvidenceAdapterImplementation	${sector_evidence_adapter_impl}	direct
 ValidatorFactory	${validator_factory}	uups	${validator_factory_impl}
 ValidatorFactoryImplementation	${validator_factory_impl}	direct
 ValidatorBeacon	${validator_beacon}	beacon	${validator_impl}

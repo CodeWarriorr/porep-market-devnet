@@ -34,6 +34,8 @@ const contractNames = [
   "PoRepMarketImplementation",
   "DataCapEvidenceAdapter",
   "DataCapEvidenceAdapterImplementation",
+  "SectorEvidenceAdapter",
+  "SectorEvidenceAdapterImplementation",
   "ValidatorFactory",
   "ValidatorFactoryImplementation",
   "ValidatorBeacon",
