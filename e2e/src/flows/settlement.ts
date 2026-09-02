@@ -502,22 +502,29 @@ export async function expectSettlementBlockedWithoutPayout(
   dealId: bigint,
   rail: PreparedRail,
   targetEpoch: bigint,
-  expectedError: "NoAttestation" | "NoProgressInSettlement"
+  expectedError: "NoAttestation" | "NoProgressInSettlement" | "SettlementTooEarly"
 ): Promise<void> {
   requireDevnet(context);
   const evm = new Evm(context);
   const view = contracts(context);
   const beforeRail = await view.rail(rail.railId);
-  const beforeFunds = await view.accountFunds(beforeRail.to);
+  const beforePayerFunds = await view.accountFunds(beforeRail.from);
+  const beforePayeeFunds = await view.accountFunds(beforeRail.to);
+  const beforeService = await view.dealService(dealId);
 
   console.log("=== Expect V2 settlement to be blocked ===");
   console.log(`  Rail: ${rail.railId}`);
   console.log(`  Target epoch: ${targetEpoch}`);
   console.log(`  Expected error: ${expectedError}`);
-  console.log(`  Payee before: ${beforeFunds}`);
+  console.log(`  Payer before: ${beforePayerFunds}`);
+  console.log(`  Payee before: ${beforePayeeFunds}`);
   console.log(`  Rail settled up to before: ${beforeRail.settledUpTo}`);
 
-  const abi = expectedError === "NoAttestation" ? artifactAbis(context).sliScorer : artifactAbis(context).filecoinPay;
+  const abi = expectedError === "NoAttestation"
+    ? artifactAbis(context).sliScorer
+    : expectedError === "SettlementTooEarly"
+      ? artifactAbis(context).poRepMarket
+      : artifactAbis(context).filecoinPay;
   const error = await expectRevertOnSend(
     evm,
     context.config.privateKeyTest,
@@ -529,17 +536,32 @@ export async function expectSettlementBlockedWithoutPayout(
   );
   if (expectedError === "NoAttestation") {
     assertEqual(error.args[0], dealId, "NoAttestation dealId");
-  } else {
+  } else if (expectedError === "NoProgressInSettlement") {
     assertEqual(error.args[0], rail.railId, "NoProgressInSettlement railId");
     assertEqual(error.args[1], beforeRail.settledUpTo + 1n, "NoProgressInSettlement expected settled epoch");
     assertEqual(error.args[2], beforeRail.settledUpTo, "NoProgressInSettlement actual settled epoch");
+  } else {
+    assertEqual(error.args[0], targetEpoch, "SettlementTooEarly requestedToEpoch");
+    assertEqual(
+      error.args[1],
+      beforeRail.settledUpTo + beforeService.minSettlementEpochs,
+      "SettlementTooEarly earliestSettlementEpoch",
+    );
   }
   console.log(`  Settlement failed with ${error.name}`);
 
   const afterRail = await view.rail(rail.railId);
-  const afterFunds = await view.accountFunds(afterRail.to);
-  assertEqual(afterFunds, beforeFunds, `payee funds unchanged after ${expectedError}`);
+  const afterPayerFunds = await view.accountFunds(afterRail.from);
+  const afterPayeeFunds = await view.accountFunds(afterRail.to);
+  const afterService = await view.dealService(dealId);
+  assertEqual(afterPayerFunds, beforePayerFunds, `payer funds unchanged after ${expectedError}`);
+  assertEqual(afterPayeeFunds, beforePayeeFunds, `payee funds unchanged after ${expectedError}`);
   assertEqual(afterRail.settledUpTo, beforeRail.settledUpTo, `rail settledUpTo unchanged after ${expectedError}`);
+  assertEqual(
+    afterService.lastSettledEpoch,
+    beforeService.lastSettledEpoch,
+    `deal lastSettledEpoch unchanged after ${expectedError}`,
+  );
   console.log("Expected settlement block observed without payout");
 }
 

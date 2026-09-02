@@ -139,13 +139,13 @@ export async function expectUnauthorizedProviderCapacityWritesToFail(
     },
     {
       label: "releaseCapacity",
-      signature: "releaseCapacity(uint64,uint256,bytes32)",
-      args: [accepted.deal.provider, 1n, manifest.manifestHash],
+      signature: "releaseCapacity(uint64,uint256,address,bytes32)",
+      args: [accepted.deal.provider, 1n, accepted.deal.client, manifest.manifestHash],
     },
     {
       label: "releasePendingCapacity",
-      signature: "releasePendingCapacity(uint64,uint256,bytes32)",
-      args: [accepted.deal.provider, 1n, manifest.manifestHash],
+      signature: "releasePendingCapacity(uint64,uint256,address,bytes32)",
+      args: [accepted.deal.provider, 1n, accepted.deal.client, manifest.manifestHash],
     },
   ] as const;
 

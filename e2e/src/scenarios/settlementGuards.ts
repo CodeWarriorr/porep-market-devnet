@@ -56,7 +56,7 @@ export async function runSettlementGuards(context: ScenarioContext): Promise<voi
     return configureSettlementCadenceForDevnet(context, deal);
   });
   await runStep(context, "prove settlement too early is blocked", () =>
-    expectSettlementBlockedWithoutPayout(context, deal.dealId, rail, new Evm(context).blockNumber(), "NoProgressInSettlement")
+    expectSettlementBlockedWithoutPayout(context, deal.dealId, rail, new Evm(context).blockNumber(), "SettlementTooEarly")
   );
   await runStep(context, "restore one-epoch settlement cadence", () => {
     context.config.env.V2_MIN_SETTLEMENT_EPOCHS = "1";

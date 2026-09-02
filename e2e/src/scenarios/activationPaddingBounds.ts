@@ -21,18 +21,20 @@ import {
 import type { ScenarioContext } from "../runtime.js";
 import { runStep } from "../runtime.js";
 
-const MAX_DEAL_ACTIVATION_PADDING = 10_000n;
-const HALF_SIZE_PADDING = 5_000n;
+const MAX_DEAL_ACTIVATION_PADDING = 2_000n;
+const DEFAULT_DEAL_ACTIVATION_PADDING = 1_000n;
+const TEST_DEAL_ACTIVATION_PADDING = 2_000n;
 
 export async function runActivationPaddingBounds(context: ScenarioContext): Promise<void> {
   const evm = new Evm(context);
   const view = contracts(context);
   const market = evm.contract(context.config.addresses.poRepMarket, artifactAbis(context).poRepMarket);
   const originalPadding = BigInt((await market.getDealActivationPadding()).toString());
+  assertEqual(originalPadding, DEFAULT_DEAL_ACTIVATION_PADDING, "default activation padding");
   const previousRequestedSize = context.config.env.V2_REQUESTED_SIZE_BYTES;
 
   try {
-    await runStep(context, "prove activation padding above 10000 bps is rejected", async () => {
+    await runStep(context, "prove activation padding above 2000 bps is rejected", async () => {
       const attemptedPadding = MAX_DEAL_ACTIVATION_PADDING + 1n;
       const error = await expectRevertOnSend(
         evm,
@@ -52,25 +54,26 @@ export async function runActivationPaddingBounds(context: ScenarioContext): Prom
       );
     });
 
-    await runStep(context, "set and read 5000 bps activation padding", async () => {
+    await runStep(context, "set and read 2000 bps activation padding", async () => {
       await evm.sendWithPrivateKey(
         context.config.identityKeys.deployer,
         context.config.addresses.poRepMarket,
         "setDealActivationPadding(uint256)",
-        [HALF_SIZE_PADDING],
+        [TEST_DEAL_ACTIVATION_PADDING],
       );
       assertEqual(
         BigInt((await market.getDealActivationPadding()).toString()),
-        HALF_SIZE_PADDING,
+        TEST_DEAL_ACTIVATION_PADDING,
         "configured activation padding",
       );
     });
 
     const piece = await runStep(context, "generate padding-bound piece", () => generatePiece(context));
-    context.config.env.V2_REQUESTED_SIZE_BYTES = (piece.pieceSize * 2n).toString();
+    const requestedSizeBytes = piece.pieceSize * 5n / 4n;
+    context.config.env.V2_REQUESTED_SIZE_BYTES = requestedSizeBytes.toString();
     const offer = await runStep(context, "register provider and offer for padding-bound deal", () =>
       registerDevnetProviderAndOffer(context));
-    const deal = await runStep(context, "propose deal requesting twice the piece size", () =>
+    const deal = await runStep(context, "propose deal with allocation at the 2000 bps padding bound", () =>
       proposeDealAndAssertAccepted(context, offer));
     const validator = await runStep(context, "deploy padding-bound validator", () =>
       createValidatorForDeal(context, deal));
@@ -78,7 +81,7 @@ export async function runActivationPaddingBounds(context: ScenarioContext): Prom
       depositAndApproveValidatorOperator(context, deal, validator));
     await runStep(context, "create padding-bound prepared rail", () =>
       createPreparedRailAndAssertRate(context, deal, validator));
-    await runStep(context, "submit half-size DataCap allocation", () =>
+    await runStep(context, "submit DataCap allocation at the padding bound", () =>
       submitDataCapAllocation(context, deal, piece));
 
     await runStep(context, "finish posting at the configured lower allocation bound", async () => {
@@ -89,7 +92,7 @@ export async function runActivationPaddingBounds(context: ScenarioContext): Prom
       );
       assertEqual(
         (await view.dealTerms(deal.dealId)).requestedSizeBytes,
-        piece.pieceSize * 2n,
+        requestedSizeBytes,
         "requested bytes above padding bound",
       );
       const outcome = await evm.sendWithPrivateKeyAllowRevert(
