@@ -30,8 +30,12 @@ test("scenario registry exposes every supported CLI scenario", () => {
     "full-available",
     "multi-claim-evidence-batches",
     "negative-activation",
+    "post-datacap-evidence-correlation",
     "prepare-devnet",
     "proposal-smoke",
+    "sector-evidence-batched-commit",
+    "sector-evidence-large-refresh",
+    "sector-evidence-multi-piece-activation",
     "sector-status-active",
     "sector-status-negative",
     "settlement-guards",
@@ -65,6 +69,32 @@ test("registers Wave 3 scenarios while keeping the irreversible adapter disable 
   );
   for (const suite of ["full", "contract", "curio", "security"] as const) {
     assert.ok(!resolveSuite(suite).includes("adapter-disable"), `${suite} excludes adapter-disable`);
+  }
+});
+
+test("registers the large sector refresh as direct-only", () => {
+  const definition = scenarioDefinitions["sector-evidence-large-refresh"];
+  assert.ok(definition);
+  assert.equal(definition.directOnly, true);
+  assert.equal(definition.timeoutMs, 12 * 60 * 60_000);
+  for (const suite of ["full", "contract", "curio", "security"] as const) {
+    assert.ok(
+      !resolveSuite(suite).includes("sector-evidence-large-refresh"),
+      `${suite} excludes sector-evidence-large-refresh`,
+    );
+  }
+});
+
+test("registers the batched Curio commit as direct-only", () => {
+  const definition = scenarioDefinitions["sector-evidence-batched-commit"];
+  assert.ok(definition);
+  assert.equal(definition.directOnly, true);
+  assert.equal(definition.timeoutMs, 12 * 60 * 60_000);
+  for (const suite of ["full", "contract", "curio", "security"] as const) {
+    assert.ok(
+      !resolveSuite(suite).includes("sector-evidence-batched-commit"),
+      `${suite} excludes sector-evidence-batched-commit`,
+    );
   }
 });
 
@@ -103,7 +133,9 @@ test("named suites resolve to registered scenarios", () => {
     "evidence-authority-guards",
     "full-available",
     "multi-claim-evidence-batches",
+    "post-datacap-evidence-correlation",
     "prepare-devnet",
+    "sector-evidence-multi-piece-activation",
     "sector-status-active",
     "sector-status-negative",
     "settlement-guards",
@@ -134,7 +166,12 @@ test("named suites resolve to registered scenarios", () => {
   );
   assert.deepEqual(
     resolveSuite("full"),
-    scenarioNames.filter((name) => name !== "adapter-disable" && name !== "upgrade-continuity"),
+    scenarioNames.filter((name) =>
+      name !== "adapter-disable"
+      && name !== "sector-evidence-batched-commit"
+      && name !== "sector-evidence-large-refresh"
+      && name !== "upgrade-continuity"
+    ),
   );
   assert.throws(() => resolveSuite("nightly"), /unknown suite: nightly/);
 });

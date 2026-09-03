@@ -6,6 +6,7 @@ export type AddressBook = {
   spRegistry: string;
   validatorFactory: string;
   dataCapEvidenceAdapter: string;
+  sectorEvidenceAdapter: string;
   filecoinPay: string;
   sliOracle: string;
   metaAllocator: string;
@@ -197,6 +198,7 @@ export function loadConfig(input: LoadConfigInput = {}): E2EConfig {
       spRegistry: contractAddress("SPRegistry"),
       validatorFactory: contractAddress("ValidatorFactory"),
       dataCapEvidenceAdapter: contractAddress("DataCapEvidenceAdapter"),
+      sectorEvidenceAdapter: contractAddress("SectorEvidenceAdapter"),
       filecoinPay: contractAddress("FilecoinPay"),
       sliOracle: contractAddress("SLIOracle"),
       metaAllocator: contractAddress("MetaAllocator"),

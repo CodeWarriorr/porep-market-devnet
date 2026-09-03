@@ -4,6 +4,7 @@ import type { ScenarioContext } from "../runtime.js";
 import { envNumber } from "../runtime.js";
 import { run, sleep } from "../shell.js";
 import type { PieceInfo } from "./piece.js";
+import { sectorEvidenceNotificationPayloadHex as buildSectorEvidenceNotificationPayloadHex } from "../fixtures/sectorEvidencePieceSet.js";
 import { dockerExec, dockerExecEnv, requireDevnet } from "./docker.js";
 
 type CurioStatus = {
@@ -33,6 +34,33 @@ export function notificationPayloadHex(id: bigint): string {
     throw new Error("notification payload ID must fit in uint64");
   }
   return `01${id.toString(16).padStart(16, "0")}`;
+}
+
+export function postDataCapNotificationPayloadHex(
+  allocationId: bigint,
+  porepDealId: bigint,
+): string {
+  if (allocationId < 0n || allocationId > 0xffff_ffff_ffff_ffffn) {
+    throw new Error("notification allocation ID must fit in uint64");
+  }
+  if (porepDealId < 0n || porepDealId >= 1n << 256n) {
+    throw new Error("notification PoRep deal ID must fit in uint256");
+  }
+  return `02${allocationId.toString(16).padStart(16, "0")}${porepDealId.toString(16).padStart(64, "0")}`;
+}
+
+export function decodePostDataCapNotificationPayload(payload: string): {
+  allocationId: bigint;
+  porepDealId: bigint;
+} {
+  const hex = payload.startsWith("0x") ? payload.slice(2) : payload;
+  if (!/^[0-9a-fA-F]{82}$/.test(hex) || hex.slice(0, 2) !== "02") {
+    throw new Error("invalid post-DataCap notification payload");
+  }
+  return {
+    allocationId: BigInt(`0x${hex.slice(2, 18)}`),
+    porepDealId: BigInt(`0x${hex.slice(18)}`),
+  };
 }
 
 export function buildMk20DealArgs(input: Mk20DealInput): string[] {
@@ -100,6 +128,22 @@ export type CurioNotificationDeal = {
   submissionOutput: string;
 };
 
+export type CurioSectorEvidenceDeal = CurioNotificationDeal & {
+  pieceIndex: number;
+  pieceCount: number;
+};
+
+export function sectorEvidenceNotificationPayloadHex(
+  dealId: bigint,
+  pieceIndex: number,
+  pieceCount: number,
+  proof: string[],
+): string {
+  return sectorEvidenceNotificationPayloadHexFromPieceSet(dealId, pieceIndex, pieceCount, proof);
+}
+
+const sectorEvidenceNotificationPayloadHexFromPieceSet = buildSectorEvidenceNotificationPayloadHex;
+
 export type CurioPipelineState = {
   id: string;
   sector: number | null;
@@ -108,6 +152,108 @@ export type CurioPipelineState = {
   allocationId: number | null;
   pieceCid: string;
 };
+
+export type CurioCommitMessageMetrics = {
+  messageCid: string;
+  unsignedMessageBytes: bigint;
+  signedMessageBytes: bigint;
+  gasUsed: bigint;
+};
+
+export type CurioCommitBatchMetrics = CurioCommitMessageMetrics & {
+  sectorCount: number;
+  gasLimit: bigint;
+};
+
+export function parseCurioCommitMessageMetrics(value: string): CurioCommitMessageMetrics {
+  const parsed = JSON.parse(value) as Record<string, unknown>;
+  if (typeof parsed.messageCid !== "string" || parsed.messageCid.length === 0) {
+    throw new Error("Curio commit message CID is missing");
+  }
+  return {
+    messageCid: parsed.messageCid,
+    unsignedMessageBytes: metricBigInt(parsed.unsignedMessageBytes, "unsigned message bytes"),
+    signedMessageBytes: metricBigInt(parsed.signedMessageBytes, "signed message bytes"),
+    gasUsed: metricBigInt(parsed.gasUsed, "gas used"),
+  };
+}
+
+export function readCurioCommitMessageMetrics(
+  context: ScenarioContext,
+  sector: number,
+): CurioCommitMessageMetrics {
+  if (!Number.isSafeInteger(sector) || sector < 0) {
+    throw new Error(`invalid sector number ${sector}`);
+  }
+  const providerActorId = Number(context.config.provider.slice(2));
+  const output = queryScalar(
+    context,
+    `select json_build_object(
+      'messageCid', pipeline.commit_msg_cid,
+      'unsignedMessageBytes', octet_length(sends.unsigned_data),
+      'signedMessageBytes', octet_length(sends.signed_data),
+      'gasUsed', waits.executed_rcpt_gas_used
+    )
+    from curio.sectors_sdr_pipeline pipeline
+    join curio.message_waits waits on waits.signed_message_cid = pipeline.commit_msg_cid
+    join curio.message_sends sends on sends.signed_cid = pipeline.commit_msg_cid
+    where pipeline.sp_id = ${providerActorId} and pipeline.sector_number = ${sector}
+    limit 1`,
+  );
+  if (!output) throw new Error(`Curio commit message metrics missing for sector ${sector}`);
+  return parseCurioCommitMessageMetrics(output);
+}
+
+export function parseCurioCommitBatchMetrics(
+  value: string,
+  expectedSectorCount: number,
+): CurioCommitBatchMetrics {
+  const rows = JSON.parse(value) as unknown;
+  if (!Array.isArray(rows)) throw new Error("Curio commit batch metrics are invalid");
+  if (rows.length !== 1) {
+    throw new Error(`expected one shared commit message, found ${rows.length}`);
+  }
+  const row = rows[0] as Record<string, unknown>;
+  const sectorCount = Number(row.sectorCount);
+  if (sectorCount !== expectedSectorCount) {
+    throw new Error(`shared commit message contains ${sectorCount} sectors, expected ${expectedSectorCount}`);
+  }
+  return {
+    ...parseCurioCommitMessageMetrics(JSON.stringify(row)),
+    sectorCount,
+    gasLimit: metricBigInt(row.gasLimit, "gas limit"),
+  };
+}
+
+export function readCurioCommitBatchMetrics(
+  context: ScenarioContext,
+  sectors: number[],
+): CurioCommitBatchMetrics {
+  if (sectors.length === 0 || sectors.some((sector) => !Number.isSafeInteger(sector) || sector < 0)) {
+    throw new Error("Curio commit batch sectors are missing or invalid");
+  }
+  const providerActorId = Number(context.config.provider.slice(2));
+  const output = queryScalar(
+    context,
+    `select coalesce(json_agg(batch), '[]'::json) from (
+      select
+        pipeline.commit_msg_cid as "messageCid",
+        count(*) as "sectorCount",
+        octet_length(sends.unsigned_data) as "unsignedMessageBytes",
+        octet_length(sends.signed_data) as "signedMessageBytes",
+        sends.signed_json #>> '{Message,GasLimit}' as "gasLimit",
+        waits.executed_rcpt_gas_used as "gasUsed"
+      from curio.sectors_sdr_pipeline pipeline
+      join curio.message_waits waits on waits.signed_message_cid = pipeline.commit_msg_cid
+      join curio.message_sends sends on sends.signed_cid = pipeline.commit_msg_cid
+      where pipeline.sp_id = ${providerActorId}
+        and pipeline.sector_number in (${sectors.join(",")})
+      group by pipeline.commit_msg_cid, sends.unsigned_data, sends.signed_data,
+        sends.signed_json, waits.executed_rcpt_gas_used
+    ) batch`,
+  );
+  return parseCurioCommitBatchMetrics(output, sectors.length);
+}
 
 export type CurioCommitFailure = {
   sector: number;
@@ -126,10 +272,13 @@ export async function submitCurioNotification(
   context: ScenarioContext,
   piece: PieceInfo,
   receiverEvmAddress: string,
+  porepDealId?: bigint,
 ): Promise<CurioNotificationDeal> {
   const allocation = createCurioAllocation(context, piece);
   const notificationAddress = evmToFilecoinAddress(context, receiverEvmAddress);
-  const notificationPayload = notificationPayloadHex(allocation.allocationId);
+  const notificationPayload = porepDealId === undefined
+    ? notificationPayloadHex(allocation.allocationId)
+    : postDataCapNotificationPayloadHex(allocation.allocationId, porepDealId);
   const providerEnv = { SP_ADDRESS: context.config.provider };
   const submissionOutput = dockerExecEnv(
     context,
@@ -164,6 +313,51 @@ export async function submitCurioNotification(
   throw new Error(`Curio deal row not found for ${piece.pieceCidV2} after 60 seconds`);
 }
 
+export async function submitCurioSectorEvidenceDeal(
+  context: ScenarioContext,
+  piece: PieceInfo,
+  porepDealId: bigint,
+  pieceIndex: number,
+  pieceCount: number,
+  proof: string[],
+): Promise<CurioSectorEvidenceDeal> {
+  const allocation = createCurioAllocation(context, piece);
+  const notificationAddress = evmToFilecoinAddress(context, context.config.addresses.sectorEvidenceAdapter);
+  const notificationPayload = sectorEvidenceNotificationPayloadHexFromPieceSet(
+    porepDealId,
+    pieceIndex,
+    pieceCount,
+    proof,
+  ).slice(2);
+  const submissionOutput = dockerExecEnv(context, "piece-server", { SP_ADDRESS: context.config.provider }, buildMk20DealArgs({
+    provider: context.config.provider,
+    pieceCidV2: piece.pieceCidV2,
+    allocationId: allocation.allocationId,
+    notificationAddress,
+    notificationPayload,
+  }));
+  for (let attempt = 1; attempt <= 60; attempt += 1) {
+    const dealId = queryScalar(
+      context,
+      `select id from curio.market_mk20_deal where piece_cid_v2='${sqlToken(piece.pieceCidV2)}' order by created_at desc limit 1`,
+    );
+    if (dealId) {
+      return {
+        dealId,
+        allocationId: allocation.allocationId,
+        ...(allocation.messageCid ? { allocationMessageCid: allocation.messageCid } : {}),
+        notificationAddress,
+        notificationPayload,
+        submissionOutput,
+        pieceIndex,
+        pieceCount,
+      };
+    }
+    await sleep(1000);
+  }
+  throw new Error(`Curio deal row not found for ${piece.pieceCidV2} after 60 seconds`);
+}
+
 export function readCurioPipeline(context: ScenarioContext, dealId: string): CurioPipelineState | undefined {
   const output = queryScalar(
     context,
@@ -186,6 +380,27 @@ export async function waitForCurioSector(
     await sleep(2000);
   }
   throw new Error(`Curio deal ${dealId} did not activate within ${maxSeconds} seconds`);
+}
+
+export async function waitForCurioSectors(
+  context: ScenarioContext,
+  dealIds: readonly string[],
+): Promise<Map<string, CurioPipelineState>> {
+  const maxSeconds = envNumber(context, "CURIO_ACTIVATION_TIMEOUT_SECONDS", 7200);
+  const pending = new Set(dealIds);
+  const result = new Map<string, CurioPipelineState>();
+  for (let elapsed = 0; elapsed < maxSeconds && pending.size > 0; elapsed += 2) {
+    for (const dealId of pending) {
+      const state = readCurioPipeline(context, dealId);
+      if (state?.sector !== null && state?.sealed && state.complete) {
+        result.set(dealId, state);
+        pending.delete(dealId);
+      }
+    }
+    if (pending.size > 0) await sleep(2000);
+  }
+  if (pending.size > 0) throw new Error(`Curio deals did not activate within ${maxSeconds} seconds: ${[...pending].join(", ")}`);
+  return result;
 }
 
 export async function waitForCurioCommitFailure(
@@ -250,6 +465,12 @@ function queryScalar(context: ScenarioContext, sql: string): string {
 function sqlToken(value: string): string {
   if (!/^[a-zA-Z0-9_-]+$/.test(value)) throw new Error(`invalid database lookup token: ${value}`);
   return value;
+}
+
+function metricBigInt(value: unknown, name: string): bigint {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return BigInt(value);
+  if (typeof value === "string" && /^\d+$/.test(value)) return BigInt(value);
+  throw new Error(`Curio commit ${name} is missing or invalid`);
 }
 
 export function assertCurioStatus(

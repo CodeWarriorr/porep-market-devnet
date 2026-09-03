@@ -10,7 +10,10 @@ export type PieceInfo = {
   pieceCarPath: string;
 };
 
-export function generatePieceAndAssertCommp(context: ScenarioContext): PieceInfo {
+export function generatePieceAndAssertCommp(
+  context: ScenarioContext,
+  rawSizeBytes = 1_500_000,
+): PieceInfo {
   console.log("=== Generate V2 piece ===");
   const pieceIndex = BigInt(context.state.get("GENERATED_PIECE_INDEX") ?? "0") + 1n;
   context.state.set("GENERATED_PIECE_INDEX", pieceIndex);
@@ -18,9 +21,12 @@ export function generatePieceAndAssertCommp(context: ScenarioContext): PieceInfo
   const pieceDir = `/tmp/porep-market-e2e-${safeRunId}-${pieceIndex}`;
   const providerEnv = { SP_ADDRESS: context.config.provider };
   dockerExecEnv(context, "piece-server", providerEnv, ["mkdir", "-p", pieceDir]);
-  const generated = dockerExecEnv(context, "piece-server", providerEnv, [
-    "sptool", "toolbox", "mk12-client", "generate-rand-car", "--size", "1500000", pieceDir,
-  ]);
+  const generated = dockerExecEnv(
+    context,
+    "piece-server",
+    providerEnv,
+    randomCarArgs(pieceDir, rawSizeBytes),
+  );
   const generatedCarPath = generated.match(/written to:\s+(\S+\.car)/)?.[1];
   if (!generatedCarPath) throw new Error(`sptool did not report the generated CAR path\n${generated}`);
 
@@ -66,6 +72,16 @@ export function generatePieceAndAssertCommp(context: ScenarioContext): PieceInfo
   console.log("=== V2 piece ready in piece server ===");
 
   return { pieceCid, pieceCidV2, pieceSize: BigInt(pieceSize), pieceCidHex, pieceCarPath };
+}
+
+export function randomCarArgs(pieceDir: string, rawSizeBytes: number): string[] {
+  if (!Number.isSafeInteger(rawSizeBytes) || rawSizeBytes <= 0) {
+    throw new Error("raw piece size must be a positive safe integer");
+  }
+  return [
+    "sptool", "toolbox", "mk12-client", "generate-rand-car",
+    "--size", rawSizeBytes.toString(), pieceDir,
+  ];
 }
 
 function cidToHex(cid: string): string {

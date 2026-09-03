@@ -846,6 +846,8 @@ test("reset keeps bounded evidence and deletes disposable chain state", async ()
     await writeFile(join(fixture.root, ".runtime/devnet/logs/old.log"), "old log\n", "utf8");
     await writeFile(join(fixture.root, ".runtime/devnet/status/latest.json"), "{}\n", "utf8");
     await writeFile(join(fixture.root, ".runtime/deployments/active.json"), "{}\n", "utf8");
+    await writeFile(join(fixture.root, ".runtime/sector-evidence-adapter-switch.json"), "{}\n", "utf8");
+    await writeFile(join(fixture.root, ".runtime/sector-evidence-curio-batch-config.json"), "{}\n", "utf8");
     await writeFile(join(fixture.root, ".runtime/devnet/compose.env"), "fixture=true\n", "utf8");
     await writeFile(join(fixture.root, ".runtime/devnet/generation"), "generation-one\n", "utf8");
     await writeFile(join(fixture.root, ".runtime/devnet/build/images.json"), "build-cache\n", "utf8");
@@ -885,6 +887,8 @@ test("reset keeps bounded evidence and deletes disposable chain state", async ()
       ".runtime/devnet/status",
       ".runtime/devnet/compose.env",
       ".runtime/deployments/active.json",
+      ".runtime/sector-evidence-adapter-switch.json",
+      ".runtime/sector-evidence-curio-batch-config.json",
     ]) {
       await assert.rejects(lstat(join(fixture.root, stale)), { code: "ENOENT" });
     }
@@ -1218,7 +1222,7 @@ test("devnet build is bounded and records inspected local image evidence", async
   assert.match(commonScript, /DEVNET_BUILD_TIMEOUT_MS=5400000/);
   assert.match(buildScript, /run-with-timeout\.mjs/);
   assert.doesNotMatch(buildScript, /docker buildx imagetools inspect/);
-  assert.match(buildScript, /devnet_write_compose_env >\/dev\/null 2>&1/);
+  assert.match(buildScript, /\( devnet_write_compose_env \) >\/dev\/null 2>&1/);
   assert.match(buildScript, /reusing validated local images/);
   assert.match(buildScript, /docker image inspect/);
   assert.match(buildScript, /\.runtime\/devnet\/build\/images\.json/);

@@ -45,7 +45,7 @@ sources:
       extern/test-vectors: 195bc065973ec35826621823964a5c3cbe5fa56d
   porep_market:
     repository: https://github.com/fidlabs/porep-market.git
-    commit: 3dc02b3e823b921536084dcf8c85e71271ecfd32
+    commit: 2ad7691c84df322e58882a8c84a25952648ba3b9
     migration_source_commit: 803942a5f439e0a588da245727197ca22546bb1f
     submodules:
       lib/filecoin-pay: f0a40fe287ecb08c2c20b828bdbadd2437988bba

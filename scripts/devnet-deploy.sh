@@ -24,7 +24,7 @@ genesis_cid="$(
 ensure_meta_allocator_notary() {
   local deployment_manifest="$1"
   local allowance=999999999999999999
-  local meta_allocator meta_filecoin current before_tx_id new_tx_id
+  local meta_allocator meta_filecoin current before_tx_id new_tx_id approval_output approval_succeeded=false
   meta_allocator="$(jq -r '.contracts.MetaAllocator.address' "${deployment_manifest}")"
   meta_filecoin="$(
     devnet_compose exec -T lotus lotus evm stat "${meta_allocator}" |
@@ -60,8 +60,19 @@ ensure_meta_allocator_notary() {
   [[ -n "${new_tx_id}" && "${new_tx_id}" != "${before_tx_id}" ]] ||
     devnet_die "MetaAllocator verifier proposal was not created"
 
-  devnet_compose exec -T lotus lotus msig approve --from t0101 f080 "${new_tx_id}" \
-    >>"${deployment_dir}/deploy.log"
+  for _ in {1..30}; do
+    if approval_output="$(devnet_compose exec -T lotus lotus msig approve --from t0101 f080 "${new_tx_id}" 2>&1)"; then
+      printf '%s\n' "${approval_output}" >>"${deployment_dir}/deploy.log"
+      approval_succeeded=true
+      break
+    fi
+    printf '%s\n' "${approval_output}" >>"${deployment_dir}/deploy.log"
+    [[ "${approval_output}" == *"no such transaction"* ]] ||
+      devnet_die "MetaAllocator verifier approval failed"
+    sleep 2
+  done
+  [[ "${approval_succeeded}" == true ]] ||
+    devnet_die "MetaAllocator verifier approval did not become available"
   for _ in {1..60}; do
     current="$(devnet_compose exec -T lotus lotus filplus check-notary-datacap "${meta_filecoin}" 2>/dev/null || true)"
     if [[ -n "${current}" && "${current}" != *"not found"* ]]; then

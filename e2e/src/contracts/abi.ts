@@ -11,6 +11,7 @@ export type ContractAbis = {
   filecoinPay: InterfaceAbi;
   erc20Permit: InterfaceAbi;
   dataCapEvidenceAdapter: InterfaceAbi;
+  sectorEvidenceAdapter: InterfaceAbi;
   sliOracle: InterfaceAbi;
   sliScorer: InterfaceAbi;
 };
@@ -31,6 +32,7 @@ export function artifactAbis(context: ScenarioContext): ContractAbis {
     validatorFactory: loadAbi(context.config.porepSourceDir, "ValidatorFactory.sol/ValidatorFactory.json"),
     validator: loadAbi(context.config.porepSourceDir, "Validator.sol/Validator.json"),
     dataCapEvidenceAdapter: loadAbi(context.config.porepSourceDir, "DataCapEvidenceAdapter.sol/DataCapEvidenceAdapter.json"),
+    sectorEvidenceAdapter: loadAbi(context.config.porepSourceDir, "SectorEvidenceAdapter.sol/SectorEvidenceAdapter.json"),
     sliOracle: loadAbi(context.config.porepSourceDir, "SLIOracle.sol/SLIOracle.json"),
     sliScorer: loadAbi(context.config.porepSourceDir, "SLIScorer.sol/SLIScorer.json"),
     filecoinPay: loadAbi(filecoinPayRoot, "FilecoinPayV1.sol/FilecoinPayV1.json"),
