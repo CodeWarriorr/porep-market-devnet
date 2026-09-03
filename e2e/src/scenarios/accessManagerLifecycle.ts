@@ -37,16 +37,24 @@ export function assertRequiredManagerRole(hasRole: boolean, account: string, rol
 
 export async function runAccessManagerLifecycle(context: ScenarioContext): Promise<void> {
   const evm = new Evm(context);
+  const manifest = deploymentManifest(context);
+  const manager = managerAddress(manifest);
+  await runStep(context, "assert AccessManager deployment topology", () =>
+    assertAccessManagerTopology(context, evm, manifest, manager));
   const beforeCount = await evm.contract(context.config.addresses.poRepMarket, ACCESS_MANAGER_ABI).getDealCount() as bigint;
   await runStep(context, "run full allocation claim activation and settlement flow", () => runFullAvailableFlow(context));
   const afterCount = await evm.contract(context.config.addresses.poRepMarket, ACCESS_MANAGER_ABI).getDealCount() as bigint;
   assertEqual(afterCount, beforeCount + 1n, "full flow created exactly one deal");
   const dealId = afterCount;
-  const manifest = deploymentManifest(context);
-  const manager = managerAddress(manifest);
 
-  await runStep(context, "assert AccessManager topology", () =>
-    assertAccessManagerTopology(context, evm, manifest, manager, dealId));
+  await runStep(context, "assert created Validator manager", async () => {
+    const validator = await contracts(context).validatorForDeal(dealId);
+    assertManagerPointer(
+      String(await evm.contract(validator, ACCESS_MANAGER_ABI).accessManager()),
+      manager,
+      "Validator",
+    );
+  });
   await runStep(context, "exercise ORACLE_ROLE grant revoke and denied attestation", () =>
     exerciseOracleRoleLifecycle(context, evm, manager, dealId));
   await runStep(context, "prove direct UUPS and beacon upgrades are denied", () =>
@@ -58,7 +66,6 @@ async function assertAccessManagerTopology(
   evm: Evm,
   manifest: DeploymentManifest,
   manager: string,
-  dealId: bigint,
 ): Promise<void> {
   const targets = [
     ["PoRepMarket", context.config.addresses.poRepMarket],
@@ -75,13 +82,6 @@ async function assertAccessManagerTopology(
       name,
     );
   }
-
-  const validator = await contracts(context).validatorForDeal(dealId);
-  assertManagerPointer(
-    String(await evm.contract(validator, ACCESS_MANAGER_ABI).accessManager()),
-    manager,
-    "Validator",
-  );
 
   const beacon = String(await evm.contract(context.config.addresses.validatorFactory, ACCESS_MANAGER_ABI).getBeacon());
   assertEqual(lower(beacon), lower(contractAddress(manifest, "ValidatorBeacon")), "ValidatorFactory beacon");
@@ -175,6 +175,7 @@ async function assertUnauthorizedUpgrades(
     assertEqual(lower(String(error.args[0])), lower(caller), `${name} denied upgrade account`);
     assertEqual(lower(String(error.args[1])), lower(upgraderRole), `${name} denied upgrade role`);
     assertEqual(evm.storage(target, IMPLEMENTATION_SLOT), before, `${name} implementation after denied upgrade`);
+    console.log(`Verified denied upgrade and unchanged implementation: ${name}`);
   }
 
   const beacon = contractAddress(manifest, "ValidatorBeacon");
@@ -188,6 +189,7 @@ async function assertUnauthorizedUpgrades(
   assertEqual(lower(String(error.args[1])), lower(upgraderRole), "denied beacon upgrade role");
   assertEqual(String(await evm.contract(beacon, ACCESS_MANAGER_ABI).owner()), beforeOwner, "beacon owner after denied upgrade");
   assertEqual(String(await evm.contract(beacon, ACCESS_MANAGER_ABI).implementation()), beforeImplementation, "beacon implementation after denied upgrade");
+  console.log("Verified denied upgrade and unchanged owner/implementation: ValidatorBeacon");
 }
 
 function deploymentManifest(context: ScenarioContext): DeploymentManifest {
