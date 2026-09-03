@@ -45,7 +45,8 @@ rm -f -- \
   "${DEVNET_COMPOSE_ENV}" \
   "${DEVNET_RUNTIME_DIR}/generation" \
   "${DEVNET_ROOT}/.runtime/deployments/active.json" \
-  "${DEVNET_ROOT}/.runtime/sector-evidence-adapter-switch.json"
+  "${DEVNET_ROOT}/.runtime/sector-evidence-adapter-switch.json" \
+  "${DEVNET_ROOT}/.runtime/sector-evidence-curio-batch-config.json"
 
 deployments_root="${DEVNET_ROOT}/.runtime/deployments"
 if [[ -d "${deployments_root}" ]]; then
