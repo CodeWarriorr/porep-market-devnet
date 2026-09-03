@@ -10,7 +10,7 @@ import { createScenarioContext } from "../src/runtime.js";
 test("artifactAbis loads the current runtime build artifacts", () => {
   const root = mkdtempSync(join(tmpdir(), "porep-e2e-abis-"));
   const porep = join(root, ".runtime/contracts/work/porep-market");
-  const filecoinPay = join(root, ".runtime/contracts/work/filecoin-pay");
+  const filecoinPay = join(root, ".runtime/deployments/deployment-test/work/filecoin-pay");
   const harness = join(root, ".runtime/contracts");
   for (const [name, fn] of [
     ["SPRegistry.sol/SPRegistry.json", "isProviderRegistered"],
@@ -57,7 +57,10 @@ function config(projectRoot: string, porepSourceDir: string): E2EConfig {
     deploymentTargetDirty: false,
     deploymentId: "deployment-test",
     deploymentRevision: 0,
-    deploymentRecordPath: join(projectRoot, ".runtime/deployments/latest.json"),
+    deploymentRecordPath: join(
+      projectRoot,
+      ".runtime/deployments/deployment-test/revisions/000.json",
+    ),
     privateKeyTest: testKey,
     privateKeySp: testKey,
     identityKeys: {

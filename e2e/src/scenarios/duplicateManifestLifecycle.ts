@@ -48,7 +48,7 @@ export async function runDuplicateManifestLifecycle(context: ScenarioContext): P
       const preview = await evm.contract(
         context.config.addresses.spRegistry,
         artifactAbis(context).spRegistry,
-      ).previewOfferForDeal(offer.offerId, request) as Result;
+      ).previewOfferForDeal(offer.offerId, first.deal.client, request) as Result;
       assertEqual(BigInt(preview[1].toString()), MANIFEST_ALREADY_ASSIGNED, "duplicate manifest preview reason");
       const capacityBeforeDuplicate = await view.providerCapacity(offer.provider);
       const error = await expectRevertOnSend(
@@ -92,7 +92,7 @@ export async function runDuplicateManifestLifecycle(context: ScenarioContext): P
       const preview = await evm.contract(
         context.config.addresses.spRegistry,
         artifactAbis(context).spRegistry,
-      ).previewOfferForDeal(offer.offerId, request) as Result;
+      ).previewOfferForDeal(offer.offerId, first.deal.client, request) as Result;
       assertEqual(BigInt(preview[1].toString()), 0n, "released manifest preview reason");
     });
 
