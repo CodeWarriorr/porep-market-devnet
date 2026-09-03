@@ -330,7 +330,7 @@ while IFS=$'\t' read -r contract_name kind calldata <&3; do
     manager="$(jq -r '.contracts.AccessManager.address // empty' "${current_manifest}")"
     if [[ "${kind}" == validator-beacon && -n "${manager}" ]]; then
       transaction_target="${manager,,}"
-      expected_input="$(cast calldata 'upgradeBeacon(address,address)' "${proxy}" "${actual}")"
+      expected_input="$(cast calldata 'upgradeBeacon(address,address)' "${proxy}" "${new_impl}")"
     fi
     tx_matches="$(
       jq -c --arg proxy "${transaction_target}" --arg expectedInput "${expected_input,,}" \
