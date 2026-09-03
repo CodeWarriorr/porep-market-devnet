@@ -156,9 +156,21 @@ target_implementation() {
 }
 
 authorized_for_upgrade() {
-  local contract_name="$1" address kind role owner
+  local contract_name="$1" address kind role owner manager pointer
   address="$(jq -r --arg name "${contract_name}" '.contracts[$name].address' "${current_manifest}")"
   kind="$(jq -r --arg name "${contract_name}" '.contracts[$name].kind' "${current_manifest}")"
+  manager="$(jq -r '.contracts.AccessManager.address // empty' "${current_manifest}")"
+  if [[ -n "${manager}" ]]; then
+    if [[ "${kind}" == uups ]]; then
+      pointer="$(cast_curio call "${address}" 'accessManager()(address)' | awk '{print $1}')"
+    else
+      pointer="$(cast_curio call "${address}" 'owner()(address)' | awk '{print $1}')"
+    fi
+    [[ "${pointer,,}" == "${manager,,}" ]] || return 1
+    role="$(cast_curio call "${manager}" 'UPGRADER_ROLE()(bytes32)' | awk '{print $1}')"
+    [[ "$(cast_curio call "${manager}" 'hasRole(bytes32,address)(bool)' "${role}" "${deployer}" | awk '{print $1}')" == true ]]
+    return
+  fi
   if [[ "${kind}" == uups ]]; then
     role="$(cast_curio call "${address}" 'UPGRADER_ROLE()(bytes32)' | awk '{print $1}')"
     [[ "$(cast_curio call "${address}" 'hasRole(bytes32,address)(bool)' "${role}" "${deployer}" | awk '{print $1}')" == true ]]
@@ -313,11 +325,20 @@ while IFS=$'\t' read -r contract_name kind calldata <&3; do
     broadcast="${target_root}/broadcast/${broadcast_script}/${chain_id}/run-latest.json"
     proxy="$(jq -r --arg name "${contract_name}" \
       '.contracts[$name].address | ascii_downcase' "${current_manifest}")"
+    transaction_target="${proxy}"
+    expected_input=""
+    manager="$(jq -r '.contracts.AccessManager.address // empty' "${current_manifest}")"
+    if [[ "${kind}" == validator-beacon && -n "${manager}" ]]; then
+      transaction_target="${manager,,}"
+      expected_input="$(cast calldata 'upgradeBeacon(address,address)' "${proxy}" "${actual}")"
+    fi
     tx_matches="$(
-      jq -c --arg proxy "${proxy}" \
+      jq -c --arg proxy "${transaction_target}" --arg expectedInput "${expected_input,,}" \
         '[.transactions[]
           | select(.transactionType == "CALL")
           | select((.transaction.to // "" | ascii_downcase) == $proxy)
+          | select($expectedInput == "" or
+              ((.transaction.input // .transaction.data // "" | ascii_downcase) == $expectedInput))
           | .hash] | unique' "${broadcast}"
     )"
     [[ "$(jq 'length' <<<"${tx_matches}")" == 1 ]] ||
