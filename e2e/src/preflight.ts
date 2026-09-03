@@ -31,6 +31,32 @@ type Manifest = {
   identities: Record<string, string>;
 };
 
+export function readAccessControlFacts(
+  manifest: Manifest,
+  read: (target: string, signature: string, args?: string[]) => string,
+): Pick<PreflightFacts, "wiringReady" | "rolesReady"> {
+  const contract = (name: string): string => manifest.contracts[name]?.address ?? "";
+  const manager = contract("AccessManager");
+  const wiringReady = !manager || (
+    ["PoRepMarket", "SPRegistry", "DataCapEvidenceAdapter", "SLIOracle", "SLIScorer", "ValidatorFactory"]
+      .every((name) => equalAddress(read(contract(name), "accessManager()(address)"), manager))
+    && equalAddress(read(contract("ValidatorBeacon"), "owner()(address)"), manager)
+  );
+  const checks: Array<[string, string, string]> = [
+    [contract("PoRepMarket"), "POREP_SERVICE_ROLE()(bytes32)", manifest.identities.porepService!],
+    [contract("SPRegistry"), "OPERATOR_ROLE()(bytes32)", manifest.identities.operator!],
+    [contract("SLIOracle"), "ORACLE_ROLE()(bytes32)", manifest.identities.oracle!],
+    [contract("DataCapEvidenceAdapter"), "TERMINATION_ORACLE()(bytes32)", contract("TerminationOracle")],
+  ];
+  if (manager) checks.push([manager, "MARKET_ROLE()(bytes32)", contract("PoRepMarket")]);
+  const rolesReady = checks.every(([legacyTarget, signature, member]) => {
+    const target = manager || legacyTarget;
+    const role = read(target, signature);
+    return read(target, "hasRole(bytes32,address)(bool)", [role, member]) === "true";
+  });
+  return { wiringReady, rolesReady };
+}
+
 export function collectPreflightFacts(context: ScenarioContext): PreflightFacts {
   ensureCurioReady(context);
   runRequired("bash", ["scripts/devnet-addresses.sh"], context.projectRoot);
@@ -65,7 +91,9 @@ export function collectPreflightFacts(context: ScenarioContext): PreflightFacts 
   const adapter = context.config.addresses.dataCapEvidenceAdapter;
   const registry = context.config.addresses.spRegistry;
   const factory = context.config.addresses.validatorFactory;
-  const sliOracle = context.config.addresses.sliOracle;
+  const acl = readAccessControlFacts(manifest, (target, signature, args = []) => cast(context, [
+    "call", "--rpc-url", context.config.rpcUrl, target, signature, ...args,
+  ]));
   const wiringReady = [
     [market, "getGlobalEvidenceAdapter()(address)", adapter],
     [market, "getSPRegistryContract()(address)", registry],
@@ -76,23 +104,8 @@ export function collectPreflightFacts(context: ScenarioContext): PreflightFacts 
     equalAddress(cast(context, [
       "call", "--rpc-url", context.config.rpcUrl, target!, signature!,
     ]), expected!)
-  );
-
-  const roleChecks: Array<[string, string, string]> = [
-    [market, "POREP_SERVICE_ROLE()(bytes32)", context.config.identityAddresses.porepService],
-    [registry, "OPERATOR_ROLE()(bytes32)", context.config.identityAddresses.operator],
-    [sliOracle, "ORACLE_ROLE()(bytes32)", context.config.identityAddresses.oracle],
-    [adapter, "TERMINATION_ORACLE()(bytes32)", contract("TerminationOracle")],
-  ];
-  const rolesReady = roleChecks.every(([target, roleSignature, member]) => {
-    const role = cast(context, [
-      "call", "--rpc-url", context.config.rpcUrl, target, roleSignature,
-    ]);
-    return cast(context, [
-      "call", "--rpc-url", context.config.rpcUrl,
-      target, "hasRole(bytes32,address)(bool)", role, member,
-    ]) === "true";
-  });
+  ) && acl.wiringReady;
+  const rolesReady = acl.rolesReady;
 
   const metaStat = dockerExec(context, "lotus", [
     "lotus", "evm", "stat", context.config.addresses.metaAllocator,

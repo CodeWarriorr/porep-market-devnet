@@ -92,6 +92,9 @@ test("upgrade execution is locked, resumable, and verifies the requested transac
   assert.match(script, /\.contracts\.ValidatorBeacon\.implementation/);
   assert.match(script, /\.transactionType == "CALL"/);
   assert.match(script, /\.transaction\.to/);
+  assert.match(script, /upgradeBeacon\(address,address\)/);
+  assert.match(script, /cast calldata 'upgradeBeacon\(address,address\)' "\$\{proxy\}" "\$\{new_impl\}"/);
+  assert.match(script, /transaction\.input/);
   assert.match(script, /\.status.*0x1/);
   assert.doesNotMatch(script, /broadcast\/\$\{broadcast_script\}\/31415926/);
   assert.doesNotMatch(script, /printf -v timestamp '%\(/);
@@ -124,6 +127,74 @@ test("runtime normalization ignores only declared immutable bytes", () => {
     }).trim(),
     "0x992200005566",
   );
+});
+
+test("upgrade authorization checks manager authority and target ownership without local ACL calls", async () => {
+  const script = await readFile(resolve(repositoryRoot, "scripts/devnet-upgrade.sh"), "utf8");
+  const functionBody = script.match(/authorized_for_upgrade\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(functionBody);
+  const directory = mkdtempSync(resolve(tmpdir(), "upgrade-authority-"));
+  const manifest = resolve(directory, "revision.json");
+  const revision = deployment();
+  revision.contracts.AccessManager = { address: address("6"), kind: "direct", runtimeCodeHash: hash("6") };
+  writeFileSync(manifest, JSON.stringify(revision));
+  for (const target of ["PoRepMarket", "ValidatorBeacon"]) {
+    for (const failure of ["none", "pointer", "role"]) {
+      const command: string = `
+        set -euo pipefail
+        current_manifest="$1"
+        deployer="$2"
+        manager_address="$3"
+        failure="$4"
+        cast_curio() {
+          case "$3" in
+            'accessManager()(address)'|'owner()(address)')
+              if [[ "$failure" == pointer ]]; then printf 'wrong'; else printf '%s' "$manager_address"; fi ;;
+            'UPGRADER_ROLE()(bytes32)')
+              [[ "$2" == "$manager_address" ]] || exit 12
+              printf 'role' ;;
+            'hasRole(bytes32,address)(bool)')
+              [[ "$2" == "$manager_address" && "$4" == role && "$5" == "$deployer" ]] || exit 13
+              if [[ "$failure" == role ]]; then printf 'false'; else printf 'true'; fi ;;
+            *) exit 14 ;;
+          esac
+        }
+        ${functionBody}
+        if authorized_for_upgrade "$5"; then printf 'allowed'; else printf 'denied'; fi
+      `;
+      const result: string = execFileSync("bash", ["-c", command, "test", manifest, address("1"), address("6"), failure, target], { encoding: "utf8" });
+      assert.equal(result, failure === "none" ? "allowed" : "denied", `${target}: ${failure}`);
+    }
+  }
+});
+
+test("beacon receipt selection matches the manager call to the new implementation", async () => {
+  const script = await readFile(resolve(repositoryRoot, "scripts/devnet-upgrade.sh"), "utf8");
+  const start = script.indexOf('    transaction_target="${proxy}"');
+  const end = script.indexOf('    [[ "$(jq \'length\'', start);
+  assert.ok(start > 0 && end > start);
+  const directory = mkdtempSync(resolve(tmpdir(), "beacon-receipt-"));
+  const manifest = resolve(directory, "revision.json");
+  const broadcast = resolve(directory, "broadcast.json");
+  const manager = address("6");
+  const beacon = address("3");
+  const oldImplementation = address("4");
+  const newImplementation = address("7");
+  writeFileSync(manifest, JSON.stringify({ contracts: { AccessManager: { address: manager } } }));
+  writeFileSync(broadcast, JSON.stringify({ transactions: [
+    { transactionType: "CALL", hash: "new-upgrade", transaction: { to: manager, input: `${beacon}-${newImplementation}` } },
+    { transactionType: "CALL", hash: "old-upgrade", transaction: { to: manager, input: `${beacon}-${oldImplementation}` } },
+    { transactionType: "CALL", hash: "wrong-target", transaction: { to: beacon, input: `${beacon}-${newImplementation}` } },
+  ] }));
+  const result = execFileSync("bash", ["-c", `
+    set -euo pipefail
+    current_manifest="$1"; broadcast="$2"; proxy="$3"; actual="$4"; new_impl="$5"
+    kind=validator-beacon
+    cast() { [[ "$1" == calldata && "$2" == 'upgradeBeacon(address,address)' ]] || exit 1; printf '%s-%s' "$3" "$4"; }
+    ${script.slice(start, end)}
+    printf '%s' "$tx_matches"
+  `, "test", manifest, broadcast, beacon, oldImplementation, newImplementation], { encoding: "utf8" });
+  assert.deepEqual(JSON.parse(result), ["new-upgrade"]);
 });
 
 function deployment(): DeploymentRevision {

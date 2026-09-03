@@ -242,6 +242,17 @@ FailingNotificationReceiver	${failing_notification_receiver}	direct
 SectorStatusInspector	${sector_status_inspector}	direct
 EOF
 
+access_manager="$(jq -r '.contracts.AccessManager.implementation // empty' "${porep_json}")"
+if [[ -n "${access_manager}" ]]; then
+  code="$(cast code --rpc-url "${RPC_URL}" "${access_manager}")"
+  [[ "${code}" =~ ^0x[0-9a-fA-F]+$ && "${code}" != "0x" ]] || {
+    printf 'missing code for AccessManager at %s\n' "${access_manager}" >&2
+    exit 1
+  }
+  printf 'AccessManager\t%s\t%s\tdirect\t\t\n' \
+    "${access_manager}" "$(cast keccak "${code}")" >>"${contracts_tsv}"
+fi
+
 contracts_json="$(jq -Rn '
   [inputs | split("\t") | {
     key: .[0],
