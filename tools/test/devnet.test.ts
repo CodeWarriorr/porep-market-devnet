@@ -847,6 +847,7 @@ test("reset keeps bounded evidence and deletes disposable chain state", async ()
     await writeFile(join(fixture.root, ".runtime/devnet/status/latest.json"), "{}\n", "utf8");
     await writeFile(join(fixture.root, ".runtime/deployments/active.json"), "{}\n", "utf8");
     await writeFile(join(fixture.root, ".runtime/sector-evidence-adapter-switch.json"), "{}\n", "utf8");
+    await writeFile(join(fixture.root, ".runtime/sector-evidence-curio-batch-config.json"), "{}\n", "utf8");
     await writeFile(join(fixture.root, ".runtime/devnet/compose.env"), "fixture=true\n", "utf8");
     await writeFile(join(fixture.root, ".runtime/devnet/generation"), "generation-one\n", "utf8");
     await writeFile(join(fixture.root, ".runtime/devnet/build/images.json"), "build-cache\n", "utf8");
@@ -887,6 +888,7 @@ test("reset keeps bounded evidence and deletes disposable chain state", async ()
       ".runtime/devnet/compose.env",
       ".runtime/deployments/active.json",
       ".runtime/sector-evidence-adapter-switch.json",
+      ".runtime/sector-evidence-curio-batch-config.json",
     ]) {
       await assert.rejects(lstat(join(fixture.root, stale)), { code: "ENOENT" });
     }
