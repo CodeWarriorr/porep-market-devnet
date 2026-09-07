@@ -48,7 +48,6 @@ export type ScenarioDefinition = {
   requiredContracts: string[];
   fixtures?: Array<"active-sector">;
   destructive?: boolean;
-  directOnly?: boolean;
 };
 
 const MARKET_CONTRACTS = [
@@ -94,8 +93,6 @@ export const scenarioDefinitions: Record<string, ScenarioDefinition> = {
   "access-manager-lifecycle": {
     ...sealing(runAccessManagerLifecycle, ["curio", "sealing", "security"]),
     requiredContracts: [...MARKET_CONTRACTS, "AccessManager", "SLIScorer"],
-    // The pinned deployment still uses target-local roles. Run against a fresh manager deployment explicitly.
-    directOnly: true,
   },
   "accepted-deal-expiration": contract(runAcceptedDealExpiration, ["contract", "security"]),
   "accepted-deal-rejection": contract(runAcceptedDealRejection, ["contract", "security"]),
@@ -209,14 +206,12 @@ export function resolveSuite(name: string): string[] {
     return scenarioNames.filter((scenario) =>
       !scenarioDefinitions[scenario]!.tags.includes("upgrade")
         && !scenarioDefinitions[scenario]!.destructive
-        && !scenarioDefinitions[scenario]!.directOnly
     );
   }
   if (name === "contract" || name === "curio" || name === "security") {
     return scenarioNames.filter((scenario) =>
       scenarioDefinitions[scenario]!.tags.includes(name)
         && !scenarioDefinitions[scenario]!.destructive
-        && !scenarioDefinitions[scenario]!.directOnly
     );
   }
   throw new Error(`unknown suite: ${name}`);

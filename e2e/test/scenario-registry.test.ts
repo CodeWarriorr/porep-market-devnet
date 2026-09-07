@@ -80,15 +80,16 @@ test("registers T3 contract security scenarios", () => {
   }
 });
 
-test("registers AccessManager qualification without adding it to legacy deployment suites", () => {
+test("registers AccessManager qualification in the sealing suites only", () => {
   const scenario = resolveScenario("access-manager-lifecycle");
   assert.equal(scenario, scenarioDefinitions["access-manager-lifecycle"]);
   assert.deepEqual(scenario.tags, ["curio", "sealing", "security"]);
   assert.equal(scenario.timeoutMs, 2 * 60 * 60_000);
   assert.ok(scenario.requiredContracts.includes("AccessManager"));
-  for (const suite of ["contract", "curio", "security", "full"]) {
-    assert.ok(!resolveSuite(suite).includes("access-manager-lifecycle"));
+  for (const suite of ["curio", "security", "full"]) {
+    assert.ok(resolveSuite(suite).includes("access-manager-lifecycle"));
   }
+  assert.ok(!resolveSuite("contract").includes("access-manager-lifecycle"));
 });
 
 test("every scenario has small valid static metadata", () => {
@@ -105,6 +106,7 @@ test("every scenario has small valid static metadata", () => {
 
 test("named suites resolve to registered scenarios", () => {
   assert.deepEqual(resolveSuite("curio"), [
+    "access-manager-lifecycle",
     "activation-lifecycle-guards",
     "basic-activation",
     "client-funds-exhaustion",
@@ -146,7 +148,7 @@ test("named suites resolve to registered scenarios", () => {
   );
   assert.deepEqual(
     resolveSuite("full"),
-    scenarioNames.filter((name) => name !== "adapter-disable" && name !== "upgrade-continuity" && name !== "access-manager-lifecycle"),
+    scenarioNames.filter((name) => name !== "adapter-disable" && name !== "upgrade-continuity"),
   );
   assert.throws(() => resolveSuite("nightly"), /unknown suite: nightly/);
 });
