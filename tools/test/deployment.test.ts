@@ -372,9 +372,9 @@ test("harness contracts use the pinned compiler and bounded runtime-only build",
   assert.match(foundry, /solc_version = "0\.8\.30"/);
   assert.match(foundry, /via_ir = true/);
   assert.match(foundry, /out = "\.\.\/\.runtime\/contracts\/out"/);
-  assert.match(remappings, /^@openzeppelin\/=.*55fa5c38bb79d2e168a8efa66b6da9cbced20cc7/m);
+  assert.match(remappings, /^@openzeppelin\/=.*8d13cc5f29de40143f4456c6a3c8d1295331edab/m);
   assert.match(remappings, /^filecoin-pay\/=.*755ca20054dae88e9e28dc569e696e822c59907f/m);
-  assert.match(remappings, /^forge-std\/=.*55fa5c38bb79d2e168a8efa66b6da9cbced20cc7/m);
+  assert.match(remappings, /^forge-std\/=.*8d13cc5f29de40143f4456c6a3c8d1295331edab/m);
   assert.match(mockUsdc, /function decimals\(\).*returns \(uint8\).*6/s);
   assert.match(receiver, /handle_filecoin_method/);
   assert.match(receiver, /2034386435/);
