@@ -332,8 +332,8 @@ export async function submitCurioSectorEvidenceDeal(
   pieceIndex: number,
   pieceCount: number,
   proof: string[],
+  allocation: { allocationId: bigint; messageCid?: string } = createCurioAllocation(context, piece),
 ): Promise<CurioSectorEvidenceDeal> {
-  const allocation = createCurioAllocation(context, piece);
   const notificationAddress = evmToFilecoinAddress(context, context.config.addresses.sectorEvidenceAdapter);
   const notificationPayload = sectorEvidenceNotificationPayloadHexFromPieceSet(
     porepDealId,

@@ -6,7 +6,7 @@ import { assertEqual } from "../assertions.js";
 import { artifactAbis } from "../contracts/abi.js";
 import { Evm, firstUint, lower } from "../contracts/evm.js";
 import { contracts, type EvidenceStatus } from "../contracts/views.js";
-import { readCurioCommitBatchMetrics, readCurioCommitMessageMetrics, submitCurioSectorEvidenceDeal, waitForCurioSectors } from "../devnet/curio.js";
+import { createCurioAllocation, readCurioCommitBatchMetrics, readCurioCommitMessageMetrics, submitCurioSectorEvidenceDeal, waitForCurioSectors } from "../devnet/curio.js";
 import { applySectorEvidenceCommitBatchConfig, type CurioCommitBatchLease } from "../devnet/curioCommitBatch.js";
 import { generatePieceAndAssertCommp } from "../devnet/piece.js";
 import { buildSectorEvidencePieceSet } from "../fixtures/sectorEvidencePieceSet.js";
@@ -24,13 +24,28 @@ import { readSectorExpiration, readSectorLocation } from "../fixtures/activeSect
 type Receipt = { providerActorId: bigint; pieceCount: bigint; acceptedPieceCount: bigint; activated: boolean; minimumCommitmentEpoch: bigint; acceptedBytes: bigint };
 type PiecePlacement = { pieceCidDigest: string; sectorNumber: bigint; paddedSize: bigint; minimumCommitmentEpoch: bigint; accepted: boolean };
 type RefreshState = { nextSectorIndex: bigint; pendingCoveredBytes: bigint; sweepStartEpoch: bigint; pendingMinimumExpiration: bigint; lastCompletedEpoch: bigint; completedExpiration: bigint; completedResult: bigint };
-type SectorObservation = { sectorNumber: bigint; coveredBytes: bigint; deadline: bigint; partition: bigint; expiration: bigint; active: boolean };
+export type SectorObservation = { sectorNumber: bigint; coveredBytes: bigint; deadline: bigint; partition: bigint; expiration: bigint; active: boolean };
+export type SectorEvidenceSettledRun = {
+  context: ScenarioContext;
+  evm: Evm;
+  market: any;
+  adapter: any;
+  deal: Awaited<ReturnType<typeof proposeDealAndAssertAccepted>>;
+  rail: Awaited<ReturnType<typeof createPreparedRailAndAssertRate>>;
+  sectorObservations: SectorObservation[];
+  requestedSizeBytes: bigint;
+};
 export type SectorEvidenceRefreshScenarioOptions = {
   pieceCount: number;
   artifactFileName: string;
   batchCurioCommit?: boolean;
   rawPieceSizeBytes?: number;
+  // Pieces of one group are submitted back to back so Curio packs them into one sector.
+  piecesPerSector?: number;
+  afterSettlement?: (run: SectorEvidenceSettledRun) => Promise<unknown>;
 };
+
+const DEVNET_SECTOR_SIZE_BYTES = 8_388_608n;
 
 export async function runSectorEvidenceMultiPieceActivation(context: ScenarioContext): Promise<void> {
   await runSectorEvidenceRefresh(context, {
@@ -50,6 +65,14 @@ export async function runSectorEvidenceRefresh(
   if (!adapter.interface.hasFunction("getRefreshState(uint256)")) {
     throw new Error("deployed SectorEvidenceAdapter ABI does not contain the refresh implementation");
   }
+  const piecesPerSector = options.piecesPerSector ?? 1;
+  if (!Number.isSafeInteger(piecesPerSector) || piecesPerSector < 1 || options.pieceCount % piecesPerSector !== 0) {
+    throw new Error("sector-evidence piece count must be a positive multiple of pieces per sector");
+  }
+  if (options.batchCurioCommit && piecesPerSector !== 1) {
+    throw new Error("batched Curio commit scenarios use one piece per sector");
+  }
+  const expectedSectorCount = options.pieceCount / piecesPerSector;
   const target = { mode: context.config.deploymentTargetMode, commit: context.config.deploymentPorepCommit, dirty: context.config.deploymentTargetDirty, revision: context.config.deploymentRevision };
   const original = context.config.addresses.dataCapEvidenceAdapter;
   const journal = switchJournal(context, original);
@@ -72,7 +95,8 @@ export async function runSectorEvidenceRefresh(
   const scenarioContext: ScenarioContext = { ...context, config: { ...context.config, env: { ...context.config.env, V2_REQUESTED_SIZE_BYTES: commitment.requestedSizeBytes.toString(), V2_PRICE_PER_32GIB_MONTH: "999999", V2_RETRIEVABILITY_BPS: "0", V2_BANDWIDTH_BYTES_PER_SECOND: "0", V2_LATENCY_MS: "0", V2_INDEXING_PCT: "0" } } };
   const artifacts: Record<string, unknown> = {
     target,
-    requestedSectorCount: options.pieceCount,
+    requestedPieceCount: options.pieceCount,
+    requestedSectorCount: expectedSectorCount,
     commitment,
     originalGlobalAdapter: original,
     switchJournal: switchJournalPath(context),
@@ -128,24 +152,36 @@ export async function runSectorEvidenceRefresh(
       });
     } else {
       let acceptedBytes = 0n;
-      for (let pieceIndex = 0; pieceIndex < canonicalPieces.length; pieceIndex++) {
-        const canonical = canonicalPieces[pieceIndex]!;
-        const curioDeal = await runStep(context, `submit sector-evidence piece ${pieceIndex + 1}/${canonicalPieces.length}`, () =>
-          submitCurioSectorEvidenceDeal(context, canonical.piece, deal.dealId, pieceIndex, canonicalPieces.length, commitment.proofs[pieceIndex]!)
-        );
-        curioDeals.push(curioDeal);
-        const completed = await runStep(context, `wait for Curio callback ${pieceIndex + 1}/${canonicalPieces.length}`, () => waitForCurioSectors(context, [curioDeal.dealId]));
+      for (let sectorIndex = 0; sectorIndex < expectedSectorCount; sectorIndex++) {
+        const firstPiece = sectorIndex * piecesPerSector;
+        const group = canonicalPieces.slice(firstPiece, firstPiece + piecesPerSector);
+        const allocations = piecesPerSector === 1 ? [] : await runStep(context, `allocate DataCap for sector ${sectorIndex + 1}/${expectedSectorCount}`, () => {
+          assertEqual(group.reduce((sum, { piece }) => sum + piece.pieceSize, 0n), DEVNET_SECTOR_SIZE_BYTES, `sector ${sectorIndex + 1} pieces fill one sector`);
+          return group.map(({ piece }) => createCurioAllocation(context, piece));
+        });
+        const groupDeals: string[] = [];
+        for (let offset = 0; offset < group.length; offset++) {
+          const pieceIndex = firstPiece + offset;
+          const curioDeal = await runStep(context, `submit sector-evidence piece ${pieceIndex + 1}/${canonicalPieces.length}`, () =>
+            submitCurioSectorEvidenceDeal(context, group[offset]!.piece, deal.dealId, pieceIndex, canonicalPieces.length, commitment.proofs[pieceIndex]!, allocations[offset])
+          );
+          curioDeals.push(curioDeal);
+          groupDeals.push(curioDeal.dealId);
+        }
+        const completed = await runStep(context, `wait for Curio sector ${sectorIndex + 1}/${expectedSectorCount}`, () => waitForCurioSectors(context, groupDeals));
         for (const [id, pipeline] of completed) pipelines.set(id, pipeline);
-        acceptedBytes += canonical.piece.pieceSize;
-        await runStep(context, `assert receipt at ${pieceIndex + 1}/${canonicalPieces.length}`, async () => {
-          await assertProgress(context, adapter, deal.dealId, BigInt(pieceIndex + 1), acceptedBytes, commitment.requestedSizeBytes, expectedPieceCount);
+        assertEqual(new Set([...completed.values()].map((pipeline) => pipeline.sector)).size, 1, `sector ${sectorIndex + 1} holds its piece group`);
+        acceptedBytes += group.reduce((sum, { piece }) => sum + piece.pieceSize, 0n);
+        const acceptedCount = firstPiece + group.length;
+        await runStep(context, `assert receipt at ${acceptedCount}/${canonicalPieces.length}`, async () => {
+          await assertProgress(context, adapter, deal.dealId, BigInt(acceptedCount), acceptedBytes, commitment.requestedSizeBytes, expectedPieceCount);
           for (let index = 0; index < canonicalPieces.length; index++) {
-            assert.equal(await adapter.isPieceAccepted(deal.dealId, index), index <= pieceIndex);
+            assert.equal(await adapter.isPieceAccepted(deal.dealId, index), index < acceptedCount);
           }
         });
       }
     }
-    const inventory = await runStep(context, "verify on-chain piece and sector inventory", () => readAndAssertInventory(adapter, deal.dealId, BigInt(context.config.provider.slice(2)), canonicalPieces, curioDeals, pipelines, commitment.requestedSizeBytes));
+    const inventory = await runStep(context, "verify on-chain piece and sector inventory", () => readAndAssertInventory(adapter, deal.dealId, BigInt(context.config.provider.slice(2)), canonicalPieces, curioDeals, pipelines, commitment.requestedSizeBytes, expectedSectorCount));
     artifacts.inventory = inventory;
     artifacts.curioCommitMessages = inventory.sectorNumbers.map((sectorNumber) => ({
       sectorNumber,
@@ -272,6 +308,9 @@ export async function runSectorEvidenceRefresh(
     assert.equal(settlement.expectedGross > 0n, true, "catch-up gross payment is positive");
     assert.equal(settlement.paidAmount > 0n, true, "catch-up provider payment is positive");
     artifacts.settlement = settlement;
+    if (options.afterSettlement) {
+      artifacts.afterSettlement = await options.afterSettlement({ context: scenarioContext, evm, market, adapter, deal, rail, sectorObservations, requestedSizeBytes: commitment.requestedSizeBytes });
+    }
     artifacts.curioDeals = curioDeals.map((item) => ({ ...item, pipeline: pipelines.get(item.dealId) }));
     artifacts.dealId = deal.dealId.toString(); artifacts.railId = rail.railId.toString(); artifacts.switchTx = switchTx;
   } finally {
@@ -332,6 +371,7 @@ async function readAndAssertInventory(
   curioDeals: Array<{ dealId: string }>,
   pipelines: Map<string, { sector: number | null }>,
   requestedSizeBytes: bigint,
+  expectedSectorCount: number,
 ): Promise<{
   receipt: Receipt;
   placements: PiecePlacement[];
@@ -374,7 +414,7 @@ async function readAndAssertInventory(
 
   const sectorCount = firstUint(await adapter.getSectorCount(dealId));
   assertEqual(sectorCount, BigInt(expectedCoveredBytes.size), "unique sector count");
-  assertEqual(sectorCount, BigInt(canonicalPieces.length), "one unique sector per submitted piece");
+  assertEqual(sectorCount, BigInt(expectedSectorCount), "unique sectors for the submitted piece groups");
   assert.equal(sectorCount >= 3n, true, "scenario produced sectors for one-sector and multi-sector refresh batches");
   const sectorNumbers: bigint[] = [];
   const coveredBytesBySector: Array<{ sectorNumber: bigint; coveredBytes: bigint }> = [];
@@ -389,14 +429,14 @@ async function readAndAssertInventory(
   return { receipt, placements, sectorCount, sectorNumbers, coveredBytesBySector };
 }
 
-function encodeLocations(observations: SectorObservation[]): string {
+export function encodeLocations(observations: SectorObservation[]): string {
   return AbiCoder.defaultAbiCoder().encode(
     ["tuple(int64 deadline,int64 partition)[]"],
     [observations.map((observation) => [observation.deadline, observation.partition])],
   );
 }
 
-function refreshStatus(value: unknown): EvidenceStatus {
+export function refreshStatus(value: unknown): EvidenceStatus {
   const result = value as { [index: number]: unknown };
   return {
     activeCoveredBytes: firstUint(result[0]),
@@ -417,7 +457,7 @@ function assertCompletedStatusUnchanged(expected: EvidenceStatus, actual: Eviden
   assertEqual(actual.totalClaims, expected.totalClaims, "partial refresh public total sectors");
 }
 
-async function transactionMetrics(evm: Evm, txHash: string): Promise<{
+export async function transactionMetrics(evm: Evm, txHash: string): Promise<{
   txHash: string;
   calldataBytes: bigint;
   gasUsed: bigint;
