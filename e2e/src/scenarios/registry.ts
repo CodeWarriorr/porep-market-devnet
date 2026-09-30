@@ -36,6 +36,7 @@ import { runDealTermination } from "./dealTermination.js";
 import { runSectorEvidenceMultiPieceActivation } from "./sectorEvidenceMultiPieceActivation.js";
 import { runSectorEvidenceLargeRefresh } from "./sectorEvidenceLargeRefresh.js";
 import { runSectorEvidenceBatchedCommit } from "./sectorEvidenceBatchedCommit.js";
+import { runSectorEvidenceSectorLoss } from "./sectorEvidenceSectorLoss.js";
 
 export type ScenarioTag =
   | "contract"
@@ -181,6 +182,7 @@ export const scenarioDefinitions: Record<string, ScenarioDefinition> = {
     directOnly: true,
   },
   "sector-evidence-multi-piece-activation": sealing(runSectorEvidenceMultiPieceActivation),
+  "sector-evidence-sector-loss": sealing(runSectorEvidenceSectorLoss),
   "shared-client-multi-rail-settlement": sealing(runSharedClientMultiRailSettlement),
   "termination-settlement": sealing(runTerminationSettlement, ["curio", "sealing", "security"]),
   "validator-rail-smoke": contract(runValidatorRailSmoke),
