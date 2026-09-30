@@ -178,6 +178,17 @@ export function parseCurioCommitMessageMetrics(value: string): CurioCommitMessag
   };
 }
 
+// Curio deletes finalized pipeline rows; sectors_meta keeps the commit message afterwards.
+function commitMessagesSql(providerActorId: number): string {
+  return `with commits as (
+    select sector_number, commit_msg_cid as cid from curio.sectors_sdr_pipeline
+    where sp_id = ${providerActorId} and commit_msg_cid is not null
+    union
+    select sector_num, msg_cid_commit from curio.sectors_meta
+    where sp_id = ${providerActorId} and msg_cid_commit is not null
+  )`;
+}
+
 export function readCurioCommitMessageMetrics(
   context: ScenarioContext,
   sector: number,
@@ -188,16 +199,17 @@ export function readCurioCommitMessageMetrics(
   const providerActorId = Number(context.config.provider.slice(2));
   const output = queryScalar(
     context,
-    `select json_build_object(
-      'messageCid', pipeline.commit_msg_cid,
+    `${commitMessagesSql(providerActorId)}
+    select json_build_object(
+      'messageCid', commits.cid,
       'unsignedMessageBytes', octet_length(sends.unsigned_data),
       'signedMessageBytes', octet_length(sends.signed_data),
       'gasUsed', waits.executed_rcpt_gas_used
     )
-    from curio.sectors_sdr_pipeline pipeline
-    join curio.message_waits waits on waits.signed_message_cid = pipeline.commit_msg_cid
-    join curio.message_sends sends on sends.signed_cid = pipeline.commit_msg_cid
-    where pipeline.sp_id = ${providerActorId} and pipeline.sector_number = ${sector}
+    from commits
+    join curio.message_waits waits on waits.signed_message_cid = commits.cid
+    join curio.message_sends sends on sends.signed_cid = commits.cid
+    where commits.sector_number = ${sector}
     limit 1`,
   );
   if (!output) throw new Error(`Curio commit message metrics missing for sector ${sector}`);
@@ -236,19 +248,19 @@ export function readCurioCommitBatchMetrics(
   const output = queryScalar(
     context,
     `select coalesce(json_agg(batch), '[]'::json) from (
+      ${commitMessagesSql(providerActorId)}
       select
-        pipeline.commit_msg_cid as "messageCid",
+        commits.cid as "messageCid",
         count(*) as "sectorCount",
         octet_length(sends.unsigned_data) as "unsignedMessageBytes",
         octet_length(sends.signed_data) as "signedMessageBytes",
         sends.signed_json #>> '{Message,GasLimit}' as "gasLimit",
         waits.executed_rcpt_gas_used as "gasUsed"
-      from curio.sectors_sdr_pipeline pipeline
-      join curio.message_waits waits on waits.signed_message_cid = pipeline.commit_msg_cid
-      join curio.message_sends sends on sends.signed_cid = pipeline.commit_msg_cid
-      where pipeline.sp_id = ${providerActorId}
-        and pipeline.sector_number in (${sectors.join(",")})
-      group by pipeline.commit_msg_cid, sends.unsigned_data, sends.signed_data,
+      from commits
+      join curio.message_waits waits on waits.signed_message_cid = commits.cid
+      join curio.message_sends sends on sends.signed_cid = commits.cid
+      where commits.sector_number in (${sectors.join(",")})
+      group by commits.cid, sends.unsigned_data, sends.signed_data,
         sends.signed_json, waits.executed_rcpt_gas_used
     ) batch`,
   );
