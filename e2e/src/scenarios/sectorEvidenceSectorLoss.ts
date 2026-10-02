@@ -5,7 +5,7 @@ import { firstUint } from "../contracts/evm.js";
 import { expectRevertOnSend } from "../contracts/reverts.js";
 import { contracts } from "../contracts/views.js";
 import { dockerExec } from "../devnet/docker.js";
-import { expectSettlementBlockedWithoutPayout, waitForSettlementWindow } from "../flows/settlement.js";
+import { settleRailAtEpochAndAssertOutcome, waitForSettlementWindow } from "../flows/settlement.js";
 import type { ScenarioContext } from "../runtime.js";
 import { runStep } from "../runtime.js";
 import { sleep } from "../shell.js";
@@ -20,7 +20,7 @@ import {
 } from "./sectorEvidenceMultiPieceActivation.js";
 
 const SECTOR_STATUS_DEAD = 0;
-const EVIDENCE_INACTIVE = 50n;
+const EVIDENCE_COVERED_BYTES_MISMATCH = 60n;
 
 export async function runSectorEvidenceSectorLoss(context: ScenarioContext): Promise<void> {
   await runSectorEvidenceRefresh(context, {
@@ -62,12 +62,12 @@ async function proveSectorLossStopsPayment(run: SectorEvidenceSettledRun): Promi
     return { sectorNumber: lost.sectorNumber, output };
   });
 
-  const inactive = await runStep(context, "refresh publishes INACTIVE for the terminated sector", async () => {
+  const mismatch = await runStep(context, "refresh publishes a coverage mismatch for the terminated sector", async () => {
     const evidenceData = encodeLocations(sectorObservations);
     const preview = refreshStatus(await market.refreshEvidenceStatus.staticCall(deal.dealId, evidenceData, {
       from: context.config.identityAddresses.porepService,
     }));
-    assertEqual(preview.result, EVIDENCE_INACTIVE, "refresh preview INACTIVE");
+    assertEqual(preview.result, EVIDENCE_COVERED_BYTES_MISMATCH, "refresh preview coverage mismatch");
     assertEqual(preview.activeCoveredBytes, 0n, "refresh preview covered bytes");
     assertEqual(preview.reasonCode, 0n, "refresh preview reason code");
     assertEqual(preview.checkedClaims, BigInt(sectorObservations.length), "refresh preview checked sectors");
@@ -75,39 +75,35 @@ async function proveSectorLossStopsPayment(run: SectorEvidenceSettledRun): Promi
     const txHash = await evm.sendWithPrivateKey(context.config.identityKeys.porepService, context.config.addresses.poRepMarket, "refreshEvidenceStatus(uint256,bytes)", [deal.dealId, evidenceData]);
     const transaction = await transactionMetrics(evm, txHash);
     const persisted = await view.evidenceStatus(deal.dealId);
-    assertEqual(persisted.result, EVIDENCE_INACTIVE, "persisted evidence INACTIVE");
+    assertEqual(persisted.result, EVIDENCE_COVERED_BYTES_MISMATCH, "persisted evidence coverage mismatch");
     assertEqual(persisted.activeCoveredBytes, 0n, "persisted covered bytes");
-    assertEqual(persisted.lastEvidenceRefreshEpoch, transaction.blockNumber, "INACTIVE refresh epoch");
+    assertEqual(persisted.lastEvidenceRefreshEpoch, transaction.blockNumber, "mismatch refresh epoch");
     assertEqual(persisted.reasonCode, 0n, "persisted evidence reason code");
     assertEqual(persisted.checkedClaims, BigInt(sectorObservations.length), "persisted checked sectors");
     assertEqual(persisted.totalClaims, BigInt(sectorObservations.length), "persisted total sectors");
     const state = await adapter.getRefreshState(deal.dealId);
-    assertEqual(state.lastCompletedEpoch, transaction.blockNumber, "completed INACTIVE refresh epoch");
-    assertEqual(state.completedResult, EVIDENCE_INACTIVE, "completed refresh result");
-    assertEqual(state.completedExpiration, 0n, "INACTIVE clears expiration");
-    assertEqual(state.nextSectorIndex, 0n, "INACTIVE resets the sweep cursor");
-    assertEqual(state.pendingCoveredBytes, 0n, "INACTIVE clears pending covered bytes");
-    assertEqual(state.sweepStartEpoch, 0n, "INACTIVE clears sweep start epoch");
-    assertEqual(state.pendingMinimumExpiration, 0n, "INACTIVE clears pending expiration");
-    assertEqual(firstUint(await adapter.getExpiration(deal.dealId)), 0n, "INACTIVE adapter expiration");
+    assertEqual(state.lastCompletedEpoch, transaction.blockNumber, "completed mismatch refresh epoch");
+    assertEqual(state.completedResult, EVIDENCE_COVERED_BYTES_MISMATCH, "completed refresh result");
+    assertEqual(state.completedExpiration, 0n, "mismatch clears expiration");
+    assertEqual(state.nextSectorIndex, 0n, "mismatch resets the sweep cursor");
+    assertEqual(state.pendingCoveredBytes, 0n, "mismatch clears pending covered bytes");
+    assertEqual(state.sweepStartEpoch, 0n, "mismatch clears sweep start epoch");
+    assertEqual(state.pendingMinimumExpiration, 0n, "mismatch clears pending expiration");
+    assertEqual(firstUint(await adapter.getExpiration(deal.dealId)), 0n, "mismatch adapter expiration");
     return { preview, persisted, transaction };
   });
 
-  const held = await runStep(context, "INACTIVE evidence holds the settlement cursor", async () => {
-    const railBefore = await view.rail(rail.railId);
+  const zeroPaid = await runStep(context, "settle the lost-sector window with zero payment", async () => {
     const serviceBefore = await view.dealService(deal.dealId);
-    const payerBefore = await view.accountFunds(railBefore.from);
     const window = await waitForSettlementWindow(context, deal, rail);
-    await expectSettlementBlockedWithoutPayout(context, deal.dealId, rail, window.readyEpoch, "EvidenceTooStale");
-    assertEqual((await view.rail(rail.railId)).settledUpTo, railBefore.settledUpTo, "held FilecoinPay cursor");
-    assertEqual((await view.dealService(deal.dealId)).lastSettledEpoch, serviceBefore.lastSettledEpoch, "held PoRep Market cursor");
-    assertEqual(await view.accountFunds(railBefore.from), payerBefore, "held payer funds");
-    assert.deepEqual(await view.rail(rail.railId), railBefore, "held FilecoinPay rail state");
-    assert.deepEqual(await view.dealService(deal.dealId), serviceBefore, "held PoRep Market service state");
-    return { targetEpoch: window.readyEpoch, filecoinPayCursor: railBefore.settledUpTo };
+    return settleRailAtEpochAndAssertOutcome(context, deal, rail, window.readyEpoch, {
+      settlementAmount: 0n,
+      settleUpto: window.readyEpoch,
+      note: "data size does not match the deal",
+    }, serviceBefore.lastSettledEpoch);
   });
 
-  return { wrongWitness, termination, inactive, held };
+  return { wrongWitness, termination, mismatch, zeroPaid };
 }
 
 async function terminateSectorAndWaitDead(context: ScenarioContext, dealId: bigint, sector: SectorObservation): Promise<string> {
