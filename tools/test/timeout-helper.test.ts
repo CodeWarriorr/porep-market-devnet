@@ -335,3 +335,31 @@ test("test-unit runs bounded tool and E2E gates before static checks", async () 
   assert.match(lines[3]!, /run-with-timeout\.mjs --timeout-ms 600000 -- npm --prefix e2e run test:unit/);
   assert.match(lines[4]!, /run-with-timeout\.mjs --timeout-ms 60000 -- bash scripts\/static-checks\.sh/);
 });
+
+test("large sector refresh has a separate twelve-hour direct recipe", async () => {
+  const justfile = await readFile(resolve(repositoryRoot, "justfile"), "utf8");
+  const recipe = /test-sector-evidence-large-refresh sectors='16' deployment='active':\n((?:    @.*\n)+)/.exec(justfile);
+  const recipeBody = recipe?.[1];
+
+  assert.ok(recipeBody);
+  const lines = recipeBody.trim().split("\n");
+  assert.match(lines[0]!, /devnet-use-deployment\.sh '\{\{deployment\}\}' latest/);
+  assert.match(
+    lines[1]!,
+    /SECTOR_EVIDENCE_LARGE_SECTOR_COUNT='\{\{sectors\}\}' node scripts\/run-with-timeout\.mjs --timeout-ms 43200000 -- npm --prefix e2e run scenario -- 'sector-evidence-large-refresh'/,
+  );
+});
+
+test("batched Curio commit has a separate twelve-hour direct recipe", async () => {
+  const justfile = await readFile(resolve(repositoryRoot, "justfile"), "utf8");
+  const recipe = /test-sector-evidence-batched-commit sectors='4' deployment='active':\n((?:    @.*\n)+)/.exec(justfile);
+  const recipeBody = recipe?.[1];
+
+  assert.ok(recipeBody);
+  const lines = recipeBody.trim().split("\n");
+  assert.match(lines[0]!, /devnet-use-deployment\.sh '\{\{deployment\}\}' latest/);
+  assert.match(
+    lines[1]!,
+    /SECTOR_EVIDENCE_BATCHED_COMMIT_SECTOR_COUNT='\{\{sectors\}\}' node scripts\/run-with-timeout\.mjs --timeout-ms 43200000 -- npm --prefix e2e run scenario -- 'sector-evidence-batched-commit'/,
+  );
+});

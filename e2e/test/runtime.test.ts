@@ -62,6 +62,7 @@ function config(projectRoot: string): E2EConfig {
     addresses: {
       poRepMarket: address, spRegistry: address, validatorFactory: address,
       dataCapEvidenceAdapter: address, filecoinPay: address, sliOracle: address,
+      sectorEvidenceAdapter: address,
       metaAllocator: address, usdcToken: address, notificationReceiver: address,
       failingNotificationReceiver: address, sectorStatusInspector: address,
     },

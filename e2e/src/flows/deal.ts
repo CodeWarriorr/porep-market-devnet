@@ -23,18 +23,26 @@ export type ProposalManifest = {
   hash: string;
 };
 
-export function nextProposalManifest(context: ScenarioContext): ProposalManifest {
+export function nextProposalManifest(
+  context: ScenarioContext,
+  hashOverride?: string,
+): ProposalManifest {
   const explicitLocation = envValue(context, "V2_MANIFEST_LOCATION");
   const location = explicitLocation || defaultProposalManifestLocation(context);
   return {
     location,
-    hash: envValue(context, "V2_MANIFEST_HASH", keccakText(location))
+    hash: hashOverride ?? envValue(context, "V2_MANIFEST_HASH", keccakText(location))
   };
 }
 
+// Matches the default generated piece; DataCap allocations may not exceed the requested size.
+export const DEFAULT_REQUESTED_SIZE_BYTES = 2_097_152n;
+
 export async function proposeDealAndAssertAccepted(
   context: ScenarioContext,
-  offer?: ProviderOffer
+  offer?: ProviderOffer,
+  manifestHash?: string,
+  expectedEvidenceAdapter = context.config.addresses.dataCapEvidenceAdapter,
 ): Promise<AcceptedDeal> {
   requireDevnet(context);
   const evm = new Evm(context);
@@ -44,12 +52,22 @@ export async function proposeDealAndAssertAccepted(
   const bandwidth = envBigInt(context, "V2_BANDWIDTH_BYTES_PER_SECOND", 1_048_576n);
   const price = envBigInt(context, "V2_PRICE_PER_32GIB_MONTH", 86_400_000_000n);
   const durationDays = envNumber(context, "V2_DURATION_DAYS", 180);
-  const requestedSize = envBigInt(context, "V2_REQUESTED_SIZE_BYTES", 2048n);
+  const requestedSize = envBigInt(context, "V2_REQUESTED_SIZE_BYTES", DEFAULT_REQUESTED_SIZE_BYTES);
   const latency = envBigInt(context, "V2_LATENCY_MS", 100n);
   const indexing = envBigInt(context, "V2_INDEXING_PCT", 100n);
   const paymentToken = envValue(context, "V2_PAYMENT_TOKEN", context.config.addresses.usdcToken);
   const dealType = envBigInt(context, "V2_DEAL_TYPE", PUBLIC_DEAL_TYPE);
-  const manifest = nextProposalManifest(context);
+  const manifest = nextProposalManifest(context, manifestHash);
+
+  const market = evm.contract(context.config.addresses.poRepMarket, [
+    "function getGlobalEvidenceAdapter() view returns (address)",
+  ]);
+  const selectedEvidenceAdapter = await market.getGlobalEvidenceAdapter() as string;
+  assertEqual(
+    lower(selectedEvidenceAdapter),
+    lower(expectedEvidenceAdapter),
+    "global evidence adapter before proposal",
+  );
 
   console.log("Proposing V2 deal...");
   const txHash = await evm.send(
@@ -71,7 +89,7 @@ export async function proposeDealAndAssertAccepted(
   const slis = await view.dealSlis(dealId);
 
   assertEqual(deal.state, 20n, `V2 deal ${dealId} state`);
-  assertEqual(lower(deal.evidenceAdapter), lower(context.config.addresses.dataCapEvidenceAdapter), "evidence adapter");
+  assertEqual(lower(deal.evidenceAdapter), lower(expectedEvidenceAdapter), "evidence adapter");
   assertEqual(deal.dealType, dealType, "deal type");
   assertEqual(deal.proposedAtEpoch, BigInt(evm.receipt(txHash).blockNumber), "proposedAtEpoch");
   assertEqual(deal.offerId > 0n, true, "deal froze provider offer id");
@@ -111,7 +129,7 @@ export async function expectDealProposalWithMismatchedPaymentTokenToFail(
   const view = contracts(context);
   const unsupportedToken = "0x000000000000000000000000000000000000dEaD";
   const manifest = nextProposalManifest(context);
-  const requestedSize = envBigInt(context, "V2_REQUESTED_SIZE_BYTES", 2048n);
+  const requestedSize = envBigInt(context, "V2_REQUESTED_SIZE_BYTES", DEFAULT_REQUESTED_SIZE_BYTES);
   const price = envBigInt(context, "V2_PRICE_PER_32GIB_MONTH", 86_400_000_000n);
   const durationDays = envNumber(context, "V2_DURATION_DAYS", 180);
   const retrievability = envBigInt(context, "V2_RETRIEVABILITY_BPS", 10_000n);
