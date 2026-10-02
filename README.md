@@ -95,8 +95,8 @@ Run summaries and bounded failure diagnostics are written under
 `.runtime/runs/`.
 
 `sector-evidence-sector-loss` packs six pieces into three sectors, terminates
-the middle sector, and requires INACTIVE evidence to block settlement without
-moving funds or either settlement cursor. Run the larger refresh separately
+the middle sector, and requires the resulting coverage mismatch to settle the
+window with zero payment. Run the larger refresh separately
 with `just test-sector-evidence-large-refresh 16`, and the shared commit test
 with `just test-sector-evidence-batched-commit 4`.
 
