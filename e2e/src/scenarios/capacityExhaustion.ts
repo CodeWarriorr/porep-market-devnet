@@ -3,7 +3,7 @@ import { artifactAbis } from "../contracts/abi.js";
 import { Evm } from "../contracts/evm.js";
 import { expectRevertOnSend } from "../contracts/reverts.js";
 import { contracts, type Deal } from "../contracts/views.js";
-import { nextProposalManifest } from "../flows/deal.js";
+import { DEFAULT_REQUESTED_SIZE_BYTES, nextProposalManifest } from "../flows/deal.js";
 import {
   registerDevnetProviderAndOffer,
   remainingProviderCapacity,
@@ -19,7 +19,7 @@ export async function runCapacityExhaustion(context: ScenarioContext): Promise<v
     registerDevnetProviderAndOffer(context, { preserveAvailableCapacity: true }),
   );
   const view = contracts(context);
-  const requestedSize = envBigInt(context, "V2_REQUESTED_SIZE_BYTES", 2048n);
+  const requestedSize = envBigInt(context, "V2_REQUESTED_SIZE_BYTES", DEFAULT_REQUESTED_SIZE_BYTES);
   const before = await view.providerCapacity(offer.provider);
   const selectedAvailableBytes = before.committedBytes + before.pendingBytes + (2n * requestedSize);
 
@@ -69,8 +69,8 @@ export async function runCapacityExhaustion(context: ScenarioContext): Promise<v
       evm,
       context.config.identityKeys.deployer,
       context.config.addresses.poRepMarket,
-      "proposeDealWithSpecificOffer(uint256,(bytes32,uint256,uint256,string,address,uint32,uint8,(uint16,uint64,uint16,uint8)))",
-      [offer.offerId, request],
+      "proposeDealWithSpecificOffer(uint256,(bytes32,uint256,uint256,string,address,uint32,uint8,(uint16,uint64,uint16,uint8)),address)",
+      [offer.offerId, request, context.config.identityAddresses.client],
       artifactAbis(context).spRegistry,
       "OfferNotEligible",
     );
@@ -94,7 +94,7 @@ export async function runCapacityExhaustion(context: ScenarioContext): Promise<v
 
 function specificOfferRequest(context: ScenarioContext): string {
   const manifest = nextProposalManifest(context);
-  const requestedSize = envBigInt(context, "V2_REQUESTED_SIZE_BYTES", 2048n);
+  const requestedSize = envBigInt(context, "V2_REQUESTED_SIZE_BYTES", DEFAULT_REQUESTED_SIZE_BYTES);
   const price = envBigInt(context, "V2_PRICE_PER_32GIB_MONTH", 86_400_000_000n);
   const durationDays = envNumber(context, "V2_DURATION_DAYS", 180);
   const dealType = envBigInt(context, "V2_DEAL_TYPE", PUBLIC_DEAL_TYPE);
@@ -114,8 +114,8 @@ async function proposeAcceptedDealAtSpecificOffer(
   const txHash = await evm.sendWithPrivateKey(
     context.config.identityKeys.deployer,
     context.config.addresses.poRepMarket,
-    "proposeDealWithSpecificOffer(uint256,(bytes32,uint256,uint256,string,address,uint32,uint8,(uint16,uint64,uint16,uint8)))",
-    [offerId, specificOfferRequest(context)],
+    "proposeDealWithSpecificOffer(uint256,(bytes32,uint256,uint256,string,address,uint32,uint8,(uint16,uint64,uint16,uint8)),address)",
+    [offerId, specificOfferRequest(context), context.config.identityAddresses.client],
   );
   const dealId = BigInt(evm.parseEvent(
     evm.receipt(txHash),

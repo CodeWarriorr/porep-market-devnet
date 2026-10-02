@@ -35,6 +35,9 @@ export function nextProposalManifest(
   };
 }
 
+// Matches the default generated piece; DataCap allocations may not exceed the requested size.
+export const DEFAULT_REQUESTED_SIZE_BYTES = 2_097_152n;
+
 export async function proposeDealAndAssertAccepted(
   context: ScenarioContext,
   offer?: ProviderOffer,
@@ -49,7 +52,7 @@ export async function proposeDealAndAssertAccepted(
   const bandwidth = envBigInt(context, "V2_BANDWIDTH_BYTES_PER_SECOND", 1_048_576n);
   const price = envBigInt(context, "V2_PRICE_PER_32GIB_MONTH", 86_400_000_000n);
   const durationDays = envNumber(context, "V2_DURATION_DAYS", 180);
-  const requestedSize = envBigInt(context, "V2_REQUESTED_SIZE_BYTES", 2048n);
+  const requestedSize = envBigInt(context, "V2_REQUESTED_SIZE_BYTES", DEFAULT_REQUESTED_SIZE_BYTES);
   const latency = envBigInt(context, "V2_LATENCY_MS", 100n);
   const indexing = envBigInt(context, "V2_INDEXING_PCT", 100n);
   const paymentToken = envValue(context, "V2_PAYMENT_TOKEN", context.config.addresses.usdcToken);
@@ -126,7 +129,7 @@ export async function expectDealProposalWithMismatchedPaymentTokenToFail(
   const view = contracts(context);
   const unsupportedToken = "0x000000000000000000000000000000000000dEaD";
   const manifest = nextProposalManifest(context);
-  const requestedSize = envBigInt(context, "V2_REQUESTED_SIZE_BYTES", 2048n);
+  const requestedSize = envBigInt(context, "V2_REQUESTED_SIZE_BYTES", DEFAULT_REQUESTED_SIZE_BYTES);
   const price = envBigInt(context, "V2_PRICE_PER_32GIB_MONTH", 86_400_000_000n);
   const durationDays = envNumber(context, "V2_DURATION_DAYS", 180);
   const retrievability = envBigInt(context, "V2_RETRIEVABILITY_BPS", 10_000n);
