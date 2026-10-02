@@ -60,12 +60,11 @@ export async function runDealTermination(context: ScenarioContext): Promise<void
         context.config.addresses.poRepMarket,
         "terminateDeal(uint256,uint8)",
         [deal.dealId, 70n],
-        artifactAbis(context).poRepMarket,
-        "DealNotInExpectedState",
+        // Early termination has no market state guard; the already-terminated rail rejects the retry.
+        artifactAbis(context).validator,
+        "InvalidRailStatusForTermination",
       );
-      assertEqual(error.args[0], deal.dealId, "repeated termination deal id");
-      assertEqual(error.args[1], 70n, "repeated termination current deal state");
-      assertEqual(error.args[2], 30n, "repeated termination expected deal state");
+      assertEqual(error.args[0], 100n, "repeated termination rail status");
     } catch (error) {
       revertAssertionError = error;
     }
