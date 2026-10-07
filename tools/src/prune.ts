@@ -22,6 +22,7 @@ export type PruneEntry = {
 
 export type PrunePlan = {
   projectRoot: string;
+  keep: number;
   entries: PruneEntry[];
   removeBytes: number;
 };
@@ -60,6 +61,36 @@ export async function planPrune(input: {
   projectRoot: string;
   keep: number;
 }): Promise<PrunePlan> {
+  const plan = await classifyPrune(input);
+  for (const entry of plan.entries) {
+    if (entry.action !== "remove") continue;
+    await assertPrunablePath(plan.projectRoot, entry.path);
+    entry.bytes = await diskUsage(entry.path);
+    plan.removeBytes += entry.bytes;
+  }
+  return plan;
+}
+
+// Protection can change after the plan was shown (a deploy, upgrade, selector
+// switch or test may have started), so deletion re-classifies first and only
+// removes what both passes agree on.
+export async function applyPrune(plan: PrunePlan): Promise<void> {
+  const current = await classifyPrune({ projectRoot: plan.projectRoot, keep: plan.keep });
+  const stillRemovable = new Set(
+    current.entries.filter((entry) => entry.action === "remove").map((entry) => entry.path),
+  );
+  for (const entry of plan.entries) {
+    if (entry.action !== "remove") continue;
+    await assertPrunablePath(plan.projectRoot, entry.path);
+    if (!stillRemovable.has(entry.path)) continue;
+    await rm(entry.path, { recursive: true });
+  }
+}
+
+async function classifyPrune(input: {
+  projectRoot: string;
+  keep: number;
+}): Promise<PrunePlan> {
   if (!Number.isSafeInteger(input.keep) || input.keep < 0) {
     throw new Error("prune keep count must be a non-negative integer");
   }
@@ -92,6 +123,9 @@ export async function planPrune(input: {
     let reason: string | undefined = protectedReason;
     if (reason === undefined && await exists(join(path, ".upgrade.lock"))) {
       reason = "upgrade in progress";
+    }
+    if (reason === undefined && await exists(join(path, ".deploy.lock"))) {
+      reason = "deploy in progress";
     }
     if (reason === undefined && !TIMESTAMPED_DEPLOYMENT.test(name)) {
       reason = "unrecognized name";
@@ -144,6 +178,8 @@ export async function planPrune(input: {
     } else if (CONTRACT_TEST_SEED.test(name)) {
       if (name === newestContractTestSeed) {
         reason = "newest contract test seed";
+      } else if (processIsAlive(Number(CONTRACT_TEST_SEED.exec(name)?.[2]))) {
+        reason = "contract test still running";
       } else {
         action = "remove";
         reason = "older contract test seed";
@@ -157,22 +193,7 @@ export async function planPrune(input: {
     entries.push({ kind: "target", name, path, action, reason, bytes: 0 });
   }
 
-  let removeBytes = 0;
-  for (const entry of entries) {
-    if (entry.action !== "remove") continue;
-    await assertPrunablePath(roots.projectRoot, entry.path);
-    entry.bytes = await diskUsage(entry.path);
-    removeBytes += entry.bytes;
-  }
-  return { projectRoot: roots.projectRoot, entries, removeBytes };
-}
-
-export async function applyPrune(plan: PrunePlan): Promise<void> {
-  for (const entry of plan.entries) {
-    if (entry.action !== "remove") continue;
-    await assertPrunablePath(plan.projectRoot, entry.path);
-    await rm(entry.path, { recursive: true });
-  }
+  return { projectRoot: roots.projectRoot, keep: input.keep, entries, removeBytes: 0 };
 }
 
 export async function assertPrunablePath(projectRoot: string, path: string): Promise<void> {
@@ -353,6 +374,17 @@ function compareContractTestSeeds(left: string, right: string): number {
   const rightMatch = CONTRACT_TEST_SEED.exec(right);
   const byTime = (leftMatch?.[1] ?? "").localeCompare(rightMatch?.[1] ?? "");
   return byTime !== 0 ? byTime : Number(leftMatch?.[2]) - Number(rightMatch?.[2]);
+}
+
+// Contract test seeds embed the host shell PID; a reused PID only keeps a seed longer.
+function processIsAlive(pid: number): boolean {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return !isNodeError(error, "ESRCH");
+  }
 }
 
 function isNodeError(error: unknown, code: string): error is NodeJS.ErrnoException {

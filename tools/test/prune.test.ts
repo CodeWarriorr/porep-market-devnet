@@ -195,9 +195,9 @@ test("prune removes contract test seeds older than the newest one", async () => 
   const value = await fixture();
   try {
     const seeds = [
-      "contract-tests-20261001T000000Z-900",
-      "contract-tests-20261002T000000Z-10",
-      "contract-tests-20261002T000000Z-9",
+      "contract-tests-20261001T000000Z-999999900",
+      "contract-tests-20261002T000000Z-999999910",
+      "contract-tests-20261002T000000Z-999999909",
     ];
     for (const seed of seeds) await addTarget(value, seed);
 
@@ -205,10 +205,53 @@ test("prune removes contract test seeds older than the newest one", async () => 
     await applyPrune(plan);
 
     assert.deepEqual(removed(plan), [
-      "target:contract-tests-20261001T000000Z-900",
-      "target:contract-tests-20261002T000000Z-9",
+      "target:contract-tests-20261001T000000Z-999999900",
+      "target:contract-tests-20261002T000000Z-999999909",
     ]);
-    assert.equal(await present(join(value.targets, "contract-tests-20261002T000000Z-10")), true);
+    assert.equal(await present(join(value.targets, "contract-tests-20261002T000000Z-999999910")), true);
+  } finally {
+    await value.cleanup();
+  }
+});
+
+test("prune keeps deployments with a running deploy and seeds of running contract tests", async () => {
+  const value = await fixture();
+  try {
+    await addDeployment(value, oldest);
+    await addDeployment(value, newest);
+    await activate(value, newest);
+    await mkdir(join(value.deployments, oldest, ".deploy.lock"));
+    const running = `contract-tests-20261001T000000Z-${process.pid}`;
+    await addTarget(value, running);
+    await addTarget(value, "contract-tests-20261002T000000Z-999999902");
+
+    const plan = await planPrune({ projectRoot: value.root, keep: 0 });
+
+    assert.deepEqual(removed(plan), []);
+    assert.match(formatPrunePlan(plan, false), new RegExp(`^keep\\ttarget\\t${running}\\t-\\tcontract test still running$`, "m"));
+  } finally {
+    await value.cleanup();
+  }
+});
+
+test("prune apply skips entries that became protected after planning", async () => {
+  const value = await fixture();
+  try {
+    await addDeployment(value, oldest);
+    await addDeployment(value, older);
+    await addDeployment(value, newest);
+    await activate(value, newest);
+
+    const plan = await planPrune({ projectRoot: value.root, keep: 0 });
+    assert.deepEqual(removed(plan), [`deployment:${older}`, `deployment:${oldest}`, `target:${older}`, `target:${oldest}`].sort());
+    await activate(value, oldest);
+    await mkdir(join(value.deployments, older, ".upgrade.lock"));
+    await applyPrune(plan);
+
+    for (const id of [oldest, older]) {
+      assert.equal(await present(join(value.deployments, id)), true);
+      assert.equal(await present(snapshotPath(value, id)), true);
+    }
   } finally {
     await value.cleanup();
   }
@@ -262,6 +305,7 @@ test("prune refuses paths outside the deployment and target roots", async () => 
     await assert.rejects(
       applyPrune({
         projectRoot: value.root,
+        keep: 0,
         removeBytes: 0,
         entries: [{ kind: "deployment", name: "outside", path: outside, action: "remove", reason: "test", bytes: 0 }],
       }),
@@ -281,8 +325,8 @@ test("prune dry run reports removals and sizes without deleting anything", async
     await addDeployment(value, middle);
     await addDeployment(value, newest);
     await activate(value, newest);
-    await addTarget(value, "contract-tests-20261001T000000Z-1");
-    await addTarget(value, "contract-tests-20261002T000000Z-1");
+    await addTarget(value, "contract-tests-20261001T000000Z-999999901");
+    await addTarget(value, "contract-tests-20261002T000000Z-999999901");
 
     const plan = await planPrune({ projectRoot: value.root, keep: 1 });
     const output = formatPrunePlan(plan, false);
@@ -296,7 +340,7 @@ test("prune dry run reports removals and sizes without deleting anything", async
       assert.equal(await present(join(value.deployments, id)), true);
       assert.equal(await present(snapshotPath(value, id)), true);
     }
-    assert.equal(await present(join(value.targets, "contract-tests-20261001T000000Z-1")), true);
+    assert.equal(await present(join(value.targets, "contract-tests-20261001T000000Z-999999901")), true);
   } finally {
     await value.cleanup();
   }

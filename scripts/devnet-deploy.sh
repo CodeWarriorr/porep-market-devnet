@@ -129,6 +129,10 @@ deployment_dir="${deployments_root}/${deployment_id}"
 [[ ! -e "${deployment_dir}" && ! -L "${deployment_dir}" ]] ||
   devnet_die "deployment ID already exists; wait one second and retry"
 mkdir -p "${deployment_dir}/work" "${deployment_dir}/revisions"
+# Keeps runtime prune away from this deployment until the script exits.
+deploy_lock="${deployment_dir}/.deploy.lock"
+mkdir "${deploy_lock}"
+trap 'rmdir "${deploy_lock}" 2>/dev/null || true' EXIT
 target_args=(contract-target prepare "${deployment_id}")
 if [[ -n "${source_arg}" ]]; then
   target_args+=(--source "${source_arg}")
