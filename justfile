@@ -36,6 +36,12 @@ addresses deployment='active':
 tooling-env deployment='active':
     @bash scripts/devnet-addresses.sh '{{deployment}}' tooling-env
 
+prune keep=env_var_or_default('DEVNET_PRUNE_KEEP', '2'):
+    @npm --silent --prefix tools run cli -- deployment prune --keep '{{keep}}'
+
+prune-apply keep=env_var_or_default('DEVNET_PRUNE_KEEP', '2'):
+    @npm --silent --prefix tools run cli -- deployment prune --keep '{{keep}}' --apply
+
 test-unit:
     @node scripts/run-with-timeout.mjs --timeout-ms 60000 -- npm --prefix tools run typecheck
     @node scripts/run-with-timeout.mjs --timeout-ms 600000 -- npm --prefix tools test

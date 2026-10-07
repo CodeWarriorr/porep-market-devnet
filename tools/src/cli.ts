@@ -18,6 +18,7 @@ import {
   parseDeploymentRevision,
 } from "./deployment.js";
 import { loadVersionLock, managedSources } from "./lock.js";
+import { applyPrune, formatPrunePlan, parsePruneArguments, planPrune } from "./prune.js";
 import { loadRuntimeLock } from "./runtime-lock.js";
 import { reconcileSource, type SourceState, verifySource } from "./sources.js";
 import { createUpgradePlan } from "./upgrade.js";
@@ -53,6 +54,14 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
       projectRoot: repositoryRoot,
       ...input,
     })));
+    return;
+  }
+
+  if (args[0] === "deployment" && args[1] === "prune") {
+    const { keep, apply } = parsePruneArguments(args);
+    const plan = await planPrune({ projectRoot: repositoryRoot, keep });
+    if (apply) await applyPrune(plan);
+    process.stdout.write(formatPrunePlan(plan, apply));
     return;
   }
 
@@ -246,7 +255,8 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
 
   throw new Error(
     "usage: cli.ts deployment inspect <generation> <genesis-cid> <chain-id> <provider> | "
-    + "deployment addresses | deployment revision inspect <generation> <genesis-cid> "
+    + "deployment addresses | deployment prune [--keep <count>] [--apply] | "
+    + "deployment revision inspect <generation> <genesis-cid> "
     + "<chain-id> <provider> | deployment revision addresses | "
     + "devnet status inspect | devnet compose inspect <compose.env> | "
     + "contract-target prepare <deployment-seed> [--source <absolute-path>] | "

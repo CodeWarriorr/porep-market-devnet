@@ -189,3 +189,5 @@ jq -n --arg deploymentId "${deployment_id}" \
   '{schemaVersion:1,deploymentId:$deploymentId,revision:0}' >"${active_temporary}"
 mv -- "${active_temporary}" "${active}"
 printf 'deployment ready: %s revision=0 manifest=%s\n' "${deployment_id}" "${manifest}"
+npm --silent --prefix "${DEVNET_ROOT}/tools" run cli -- deployment prune --apply ||
+  printf 'warning: runtime prune failed; inspect with: just prune\n' >&2
