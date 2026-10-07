@@ -140,6 +140,10 @@ deployment_dir="${deployments_root}/${deployment_id}"
 [[ ! -e "${deployment_dir}" && ! -L "${deployment_dir}" ]] ||
   devnet_die "deployment ID already exists; wait one second and retry"
 mkdir -p "${deployment_dir}/work" "${deployment_dir}/revisions"
+# Keeps runtime prune away from this deployment until the script exits.
+deploy_lock="${deployment_dir}/.deploy.lock"
+mkdir "${deploy_lock}"
+trap 'rmdir "${deploy_lock}" 2>/dev/null || true' EXIT
 target_args=(contract-target prepare "${deployment_id}")
 if [[ -n "${source_arg}" ]]; then
   target_args+=(--source "${source_arg}")
@@ -200,3 +204,5 @@ jq -n --arg deploymentId "${deployment_id}" \
   '{schemaVersion:1,deploymentId:$deploymentId,revision:0}' >"${active_temporary}"
 mv -- "${active_temporary}" "${active}"
 printf 'deployment ready: %s revision=0 manifest=%s\n' "${deployment_id}" "${manifest}"
+npm --silent --prefix "${DEVNET_ROOT}/tools" run cli -- deployment prune --apply ||
+  printf 'warning: runtime prune failed; inspect with: just prune\n' >&2

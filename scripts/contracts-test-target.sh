@@ -10,6 +10,14 @@ source_arg="${1:-}"
 source_arg="${source_arg#source=}"
 printf -v timestamp '%(%Y%m%dT%H%M%SZ)T' -1
 seed="contract-tests-${timestamp}-$$"
+seed_root="${DEVNET_ROOT}/.runtime/contracts/targets/${seed}"
+remove_test_target() {
+  [[ "${DEVNET_KEEP_CONTRACT_TEST_TARGET:-}" == 1 ]] && return 0
+  [[ -e "${seed_root}" || -L "${seed_root}" ]] || return 0
+  devnet_require_safe_write_path "${seed_root}" directory
+  rm -r -- "${seed_root}"
+}
+trap remove_test_target EXIT
 target_args=(contract-target prepare "${seed}")
 if [[ -n "${source_arg}" ]]; then
   [[ "${source_arg}" == /* ]] || devnet_die "PoRep Market source must be an absolute path"
